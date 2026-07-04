@@ -1,5 +1,12 @@
 name: Deploy
 
+# Build the image and push to GHCR with a sortable `<timestamp>-<sha>` tag
+# plus `latest`. Flux ImageUpdateAutomation in the server-utilities repo picks
+# up the new tag and commits the bump to k8s/apps/mafia/app.yaml.
+#
+# Inlined (rather than calling the shared build-image.yml reusable workflow)
+# because a public repo can't resolve that private reusable workflow.
+
 on:
   push:
     branches: [main]
@@ -13,7 +20,31 @@ permissions:
 
 jobs:
   build:
-    uses: jackowfish/server-utilities/.github/workflows/build-image.yml@master
-    with:
-      image: ghcr.io/jackowfish/mafia
-    secrets: inherit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Compute tag
+        id: tag
+        run: |
+          ts=$(date -u +%Y%m%d%H%M%S)
+          sha=$(git rev-parse --short=7 HEAD)
+          echo "value=${ts}-${sha}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/jackowfish/mafia:${{ steps.tag.outputs.value }}
+            ghcr.io/jackowfish/mafia:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

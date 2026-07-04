@@ -8,10 +8,13 @@ Every card is a face card from a real deck (SVGs from [me.uk/cards](https://www.
 
 | card | position | night action |
 | --- | --- | --- |
-| A♠ | The Mafia | picks somebody to kill |
+| A♠ A♣ A♦ | The Mafia | vote on somebody to kill (most fingers wins) |
 | A♥ | The Angel | picks somebody to protect |
 | K♥ | The Sheriff | investigates one player - learns if they're the mafia |
+| K♠ | The Mayor (optional) | runs the table; their card is public so everyone knows they're clean |
 | everything else | Townsperson | points at somebody (decoy, so every screen looks the same) |
+
+The black aces come out one at a time as the table grows: 1 mafia at 4-7 players, 2 at 8-10, 3 at 11+. The mafia know each other and can't shoot their own. The Mayor gets a private script of stage directions (what to read at sunrise, when to open nominations, whose speeches to call) plus the phase controls, and still plays - nominates, votes, and can be shot.
 
 ## A round
 
@@ -22,7 +25,7 @@ Every card is a face card from a real deck (SVGs from [me.uk/cards](https://www.
 5. Speeches, then the vote. The accused don't vote. Ties go to a coin.
 6. The condemned card flips. Mafia hanged → point town. Wrong hunch → point mafia. Next round re-deals.
 
-4–13 players. Rooms expire after 24h idle.
+4-16 players. Rooms expire after 24h idle.
 
 ## Run
 
@@ -48,4 +51,5 @@ Point `REDIS_URL` at a shared Redis (any non-localhost host) and run as many rep
 
 - deal the Sheriff (K♥)
 - deal the Angel (A♥)
+- seat the Mayor (K♠)
 - flip everyone's card at the end of the round

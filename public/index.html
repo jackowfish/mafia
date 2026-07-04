@@ -75,6 +75,7 @@
           </div>
           <label class="toggle"><input type="checkbox" id="setSheriff" /><span>deal the Sheriff (K♥) - investigates one player each night</span></label>
           <label class="toggle"><input type="checkbox" id="setAngel" /><span>deal the Angel (A♥) - watches over one player each night</span></label>
+          <label class="toggle"><input type="checkbox" id="setMayor" /><span>seat the Mayor (K♠) - runs the table and reads the prompts. their card is public, so everyone knows they're clean</span></label>
           <label class="toggle"><input type="checkbox" id="setRevealAll" /><span>flip everyone's card at the end of the round</span></label>
           <p class="muted small">rule changes take effect at the next deal.</p>
           <button class="btn btn-secondary modal-done" data-close>done</button>
@@ -115,6 +116,13 @@
       </div>
 
       <p id="privateNote" class="private-note hidden"></p>
+
+      <!-- the mayor's teleprompter: stage directions only they can see -->
+      <div id="mayorBox" class="mayor-box hidden">
+        <span class="mayor-box-label">🎩 mayor's script</span>
+        <p id="mayorPrompt"></p>
+      </div>
+
       <p id="ghostNote" class="ghost-note hidden"></p>
 
       <!-- ─── waiting for the deal ─── -->

@@ -45,10 +45,16 @@ const tok = () => crypto.randomBytes(16).toString("hex");
 const CARDS = {
   AS: { rank: "A", suit: "♠", red: false, role: "mafia",   title: "The Mafia",
         blurb: "Every night you pick somebody to put in the ground. Don't get caught." },
+  AC: { rank: "A", suit: "♣", red: false, role: "mafia",   title: "The Mafia",
+        blurb: "Every night you pick somebody to put in the ground. Don't get caught." },
+  AD: { rank: "A", suit: "♦", red: true,  role: "mafia",   title: "The Mafia",
+        blurb: "Every night you pick somebody to put in the ground. Don't get caught." },
   KH: { rank: "K", suit: "♥", red: true,  role: "sheriff", title: "The Sheriff",
         blurb: "Every night you investigate one player and learn whether they're the mafia." },
   AH: { rank: "A", suit: "♥", red: true,  role: "angel",   title: "The Angel",
         blurb: "Every night you pick one soul to watch over. If the mafia comes for them, they live." },
+  KS: { rank: "K", suit: "♠", red: false, role: "mayor",   title: "The Mayor",
+        blurb: "You run this town - in the open. Everyone knows you're clean. Read the prompts, keep the meeting moving." },
   JS: { rank: "J", suit: "♠", red: false, role: "town", title: "Townsperson" },
   JH: { rank: "J", suit: "♥", red: true,  role: "town", title: "Townsperson" },
   JD: { rank: "J", suit: "♦", red: true,  role: "town", title: "Townsperson" },
@@ -57,12 +63,15 @@ const CARDS = {
   QD: { rank: "Q", suit: "♦", red: true,  role: "town", title: "Townsperson" },
   QC: { rank: "Q", suit: "♣", red: false, role: "town", title: "Townsperson" },
   QH: { rank: "Q", suit: "♥", red: true,  role: "town", title: "Townsperson" },
-  KS: { rank: "K", suit: "♠", red: false, role: "town", title: "Townsperson" },
   KD: { rank: "K", suit: "♦", red: true,  role: "town", title: "Townsperson" },
   KC: { rank: "K", suit: "♣", red: false, role: "town", title: "Townsperson" },
 };
 const TOWN_BLURB = "You're just here for a drink. Watch faces, point fingers, and vote well.";
 const TOWN_CODES = Object.keys(CARDS).filter((c) => CARDS[c].role === "town");
+const MAFIA_CARDS = ["AS", "AC", "AD"];
+
+// the black aces come out one at a time as the table grows
+const mafiaCountFor = (n) => (n >= 11 ? 3 : n >= 8 ? 2 : 1);
 
 const cardPublic = (code) => {
   const c = CARDS[code];
@@ -72,10 +81,14 @@ const cardPublic = (code) => {
 const defaultSettings = () => ({
   sheriffEnabled: true,
   angelEnabled: true,
+  mayorEnabled: false,
   revealAllCards: true,
 });
 
-const MIN_PLAYERS = 4;
+const specialsCount = (s) =>
+  (s.sheriffEnabled ? 1 : 0) + (s.angelEnabled ? 1 : 0) + (s.mayorEnabled ? 1 : 0);
+const minPlayersFor = (s) => Math.max(4, 2 + specialsCount(s));
+const maxPlayersFor = (s) => TOWN_CODES.length + MAFIA_CARDS.length + specialsCount(s);
 
 const keys = {
   meta: (r) => `room:${r}:meta`,
@@ -117,9 +130,10 @@ function shuffle(arr) {
 }
 
 function newRound(memberIds, settings, prev) {
-  const deck = ["AS"];
+  const deck = MAFIA_CARDS.slice(0, mafiaCountFor(memberIds.length));
   if (settings.sheriffEnabled) deck.push("KH");
   if (settings.angelEnabled) deck.push("AH");
+  if (settings.mayorEnabled) deck.push("KS");
   const townNeeded = memberIds.length - deck.length;
   deck.push(...shuffle(TOWN_CODES).slice(0, townNeeded));
   const dealt = shuffle(deck);
@@ -147,6 +161,9 @@ function newRound(memberIds, settings, prev) {
 const findByRole = (g, role) =>
   g.players.find((id) => CARDS[g.cards[id]].role === role) || null;
 
+const allByRole = (g, role) =>
+  g.players.filter((id) => CARDS[g.cards[id]].role === role);
+
 const aliveIds = (g) => g.players.filter((id) => g.alive[id]);
 
 function actedThisPhase(g, id) {
@@ -161,10 +178,16 @@ function actedThisPhase(g, id) {
 }
 
 function resolveNight(g) {
-  const mafiaId = findByRole(g, "mafia");
   const angelId = findByRole(g, "angel");
   const sheriffId = findByRole(g, "sheriff");
-  const target = g.picks[mafiaId];
+  // the mafia vote on the mark; most fingers wins, ties break random
+  const killVotes = {};
+  for (const id of allByRole(g, "mafia")) {
+    const t = g.picks[id];
+    if (t !== undefined) killVotes[t] = (killVotes[t] || 0) + 1;
+  }
+  const ranked = shuffle(Object.keys(killVotes)).sort((a, b) => killVotes[b] - killVotes[a]);
+  const target = ranked[0];
   const saved = !!(angelId && g.alive[angelId] && g.picks[angelId] === target);
   const victimId = saved ? null : target;
   if (victimId) g.alive[victimId] = false;
@@ -209,7 +232,7 @@ function resolveVerdict(g) {
   const wasMafia = CARDS[g.cards[condemnedId]].role === "mafia";
   if (wasMafia) g.score.town += 1;
   else g.score.mafia += 1;
-  g.verdict = { condemnedId, counts, hung, wasMafia, mafiaId: findByRole(g, "mafia") };
+  g.verdict = { condemnedId, counts, hung, wasMafia, mafiaIds: allByRole(g, "mafia") };
   g.phase = "reveal";
 }
 
@@ -224,11 +247,13 @@ function publicState(roomId, r) {
   const out = {
     roomId,
     settings,
-    minPlayers: MIN_PLAYERS,
-    maxPlayers: TOWN_CODES.length + 1 + (settings.sheriffEnabled ? 1 : 0) + (settings.angelEnabled ? 1 : 0),
+    minPlayers: minPlayersFor(settings),
+    maxPlayers: maxPlayersFor(settings),
     phase: g ? g.phase : "lobby",
     round: g ? g.round : 0,
     score: g ? g.score : { town: 0, mafia: 0 },
+    mafiaCount: g ? allByRole(g, "mafia").length : 0,
+    mayorId: g ? findByRole(g, "mayor") : null, // the mayor's card is public
     members: memberIds.map((id) => ({
       id,
       name: members[id],
@@ -262,7 +287,7 @@ function publicState(roomId, r) {
       counts: g.verdict.counts,
       hung: g.verdict.hung,
       wasMafia: g.verdict.wasMafia,
-      mafiaId: g.verdict.mafiaId,
+      mafiaIds: g.verdict.mafiaIds,
     };
     if (settings.revealAllCards) {
       out.verdict.allCards = Object.fromEntries(
@@ -283,6 +308,10 @@ function privateState(g, id) {
   if (g.votes[id] !== undefined) out.votedFor = g.votes[id];
   if (CARDS[code].role === "sheriff" && g.sheriff && g.phase !== "night") {
     out.sheriff = g.sheriff;
+  }
+  if (CARDS[code].role === "mafia") {
+    const partners = allByRole(g, "mafia").filter((m) => m !== id);
+    if (partners.length) out.partners = partners;
   }
   return out;
 }
@@ -321,12 +350,17 @@ app.post("/api/rooms", async (req, res) => {
 io.on("connection", (socket) => {
   let joined = null; // { roomId, memberId, isHost }
 
-  const withRoom = (handler, { hostOnly = false } = {}) => async (payload, ack) => {
+  // leadOnly = the host or the sitting mayor may do it
+  const withRoom = (handler, { hostOnly = false, leadOnly = false } = {}) => async (payload, ack) => {
     try {
       if (!joined) return ack?.({ error: "not joined" });
       if (hostOnly && !joined.isHost) return ack?.({ error: "host only" });
       const r = await loadRoom(joined.roomId);
       if (!r) return ack?.({ error: "room not found" });
+      if (leadOnly && !joined.isHost) {
+        const isMayor = r.game && findByRole(r.game, "mayor") === joined.memberId;
+        if (!isMayor) return ack?.({ error: "host or mayor only" });
+      }
       const err = await handler(r, payload || {});
       if (err) return ack?.({ error: err });
       ack?.({ ok: true });
@@ -368,13 +402,13 @@ io.on("connection", (socket) => {
   // ("next round"), or mid-round as an abandon-and-redeal.
   socket.on("deal", withRoom(async (r) => {
     const memberIds = Object.keys(r.members);
-    const max = TOWN_CODES.length + 1 +
-      (r.settings.sheriffEnabled ? 1 : 0) + (r.settings.angelEnabled ? 1 : 0);
-    if (memberIds.length < MIN_PLAYERS) return `need at least ${MIN_PLAYERS} players`;
+    const min = minPlayersFor(r.settings);
+    const max = maxPlayersFor(r.settings);
+    if (memberIds.length < min) return `need at least ${min} players`;
     if (memberIds.length > max) return `too many players - the deck holds ${max}`;
     const g = newRound(memberIds, r.settings, r.game);
     await saveGame(joined.roomId, g);
-  }, { hostOnly: true }));
+  }, { leadOnly: true }));
 
   socket.on("nightPick", withRoom(async (r, { targetId }) => {
     const g = r.game;
@@ -384,6 +418,9 @@ io.on("connection", (socket) => {
     if (!g.players.includes(targetId) || !g.alive[targetId]) return "pick a living player";
     const myRole = CARDS[g.cards[me]].role;
     if (targetId === me && myRole !== "angel") return "you can't pick yourself";
+    if (myRole === "mafia" && CARDS[g.cards[targetId]].role === "mafia") {
+      return "you don't shoot your own";
+    }
     g.picks[me] = targetId;
     if (aliveIds(g).every((id) => g.picks[id] !== undefined)) resolveNight(g);
     await saveGame(joined.roomId, g);
@@ -394,7 +431,7 @@ io.on("connection", (socket) => {
     if (!g || g.phase !== "day") return "wrong moment";
     g.phase = "nominating";
     await saveGame(joined.roomId, g);
-  }, { hostOnly: true }));
+  }, { leadOnly: true }));
 
   socket.on("nominate", withRoom(async (r, { picks }) => {
     const g = r.game;
@@ -418,7 +455,7 @@ io.on("connection", (socket) => {
     if (!g || g.phase !== "trial") return "wrong moment";
     g.phase = "verdict";
     await saveGame(joined.roomId, g);
-  }, { hostOnly: true }));
+  }, { leadOnly: true }));
 
   socket.on("vote", withRoom(async (r, { accusedId }) => {
     const g = r.game;
@@ -438,8 +475,9 @@ io.on("connection", (socket) => {
     const g = r.game;
     if (!g) return "no round in progress";
     if (g.phase === "night") {
-      const mafiaId = findByRole(g, "mafia");
-      if (g.picks[mafiaId] === undefined) return "waiting on the killer - can't skip that";
+      if (!allByRole(g, "mafia").some((id) => g.picks[id] !== undefined)) {
+        return "waiting on the killers - can't skip that";
+      }
       resolveNight(g);
     } else if (g.phase === "nominating") {
       if (!closeNominations(g)) return "need at least two nominated players";
@@ -450,11 +488,11 @@ io.on("connection", (socket) => {
       return "nothing to skip";
     }
     await saveGame(joined.roomId, g);
-  }, { hostOnly: true }));
+  }, { leadOnly: true }));
 
   socket.on("settings", withRoom(async (r, { settings }) => {
     const clean = {};
-    for (const k of ["sheriffEnabled", "angelEnabled", "revealAllCards"]) {
+    for (const k of ["sheriffEnabled", "angelEnabled", "mayorEnabled", "revealAllCards"]) {
       if (typeof settings?.[k] === "boolean") clean[k] = settings[k];
     }
     const merged = { ...r.settings, ...clean };

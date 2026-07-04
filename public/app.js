@@ -152,8 +152,43 @@ const NIGHT_PROMPTS = {
   mafia: "Pick your mark. They won't see morning - unless the Angel is watching.",
   sheriff: "Pick someone to tail tonight. By sunrise you'll know if they're the mafia.",
   angel: "Pick someone to watch over tonight. You can pick yourself.",
+  mayor: "Point at whoever looks shifty - it does nothing, but every screen looks the same. Save your voice for sunrise.",
   town: "Point at whoever looks shifty. It changes nothing - but every screen looks the same, so nobody can tell who's who.",
 };
+
+function mayorScript(s) {
+  const waiting = s.members.filter((m) => m.inRound && m.alive && !m.acted).map((m) => m.name);
+  switch (s.phase) {
+    case "night":
+      return `Set the scene: "Night falls on the saloon. Eyes on your own screen, hands where I can see 'em." ` +
+        (waiting.length ? `Still deciding: ${waiting.join(", ")}. Make your own pick too.` : "Everyone's in.");
+    case "day": {
+      let line = "A quiet night. Too quiet.";
+      if (s.report?.victimId) {
+        const c = s.report.victimCard;
+        line = `${nameOf(s.report.victimId)} was found face-down at dawn. They were ${c ? c.title : "somebody"}.`;
+      } else if (s.report?.saved) {
+        line = "Shots rang out - but the Angel was watching. Everybody lives.";
+      }
+      return `Read it aloud: "${line}" Let the table argue a while, then open nominations.`;
+    }
+    case "nominating":
+      return `Tell them: "Point two fingers, folks. The two most-accused stand trial." ` +
+        (waiting.length ? `Still deciding: ${waiting.join(", ")}.` : "All accusations are in.");
+    case "trial": {
+      const names = (s.accused || []).map((a) => nameOf(a.id));
+      return `Call them up: "${names.join(" and ")}, on your feet." Give each a speech - thirty seconds apiece, no interruptions. Then call the vote.`;
+    }
+    case "verdict":
+      return `The vote is open: ${s.votesIn}/${s.votersTotal} in. Chase the stragglers, then read the verdict when it lands.`;
+    case "reveal":
+      return s.verdict
+        ? `Read it slow: "${nameOf(s.verdict.condemnedId)}... ${s.verdict.wasMafia ? "was the mafia. Sleep easy, folks." : "was innocent. The mafia tips their hat."}" Shuffle up when the table's ready.`
+        : "";
+    default:
+      return "";
+  }
+}
 
 // ── render ─────────────────────────────────────────────────────────────────
 
@@ -166,6 +201,8 @@ function render() {
   const inRound = !!memberById(me.memberId)?.inRound;
   const alive = !!memberById(me.memberId)?.alive;
   const playing = inRound && phase !== "lobby";
+  const iAmMayor = playing && s.mayorId === me.memberId;
+  const isLead = me.isHost || iAmMayor;
 
   // a fresh deal → riffle the deck (not on first paint after a reload)
   if (phase === "night" && renderedRound !== null && s.round !== renderedRound) {
@@ -188,6 +225,7 @@ function render() {
   const waiting = s.members.filter((m) => m.inRound && !m.acted).length;
   const waitBits = [];
   if (s.round > 0) waitBits.push(`round ${s.round}`);
+  if (s.mafiaCount > 0) waitBits.push(`${s.mafiaCount} mafia dealt`);
   if (["night", "nominating"].includes(phase) && waiting > 0) waitBits.push(`waiting on ${waiting}`);
   if (phase === "verdict") waitBits.push(`${s.votesIn}/${s.votersTotal} votes in`);
   $("waitLabel").textContent = waitBits.join(" · ");
@@ -195,6 +233,7 @@ function render() {
   // settings
   $("setSheriff").checked = !!s.settings.sheriffEnabled;
   $("setAngel").checked = !!s.settings.angelEnabled;
+  $("setMayor").checked = !!s.settings.mayorEnabled;
   $("setRevealAll").checked = !!s.settings.revealAllCards;
 
   // stages
@@ -226,8 +265,19 @@ function render() {
       ? `🔎 You tailed ${n} last night. It's them - ${n} is the mafia.`
       : `🔎 You tailed ${n} last night. They're clean.`);
   }
+  if (playing && priv?.partners?.length) {
+    notes.push(`🔫 Your partner${priv.partners.length === 1 ? "" : "s"} in crime: ${priv.partners.map(nameOf).join(", ")}.`);
+  }
   $("privateNote").textContent = notes.join(" ");
   $("privateNote").classList.toggle("hidden", notes.length === 0);
+
+  // the mayor's teleprompter
+  if (iAmMayor) {
+    $("mayorPrompt").textContent = mayorScript(s);
+    show($("mayorBox"));
+  } else {
+    hide($("mayorBox"));
+  }
 
   let ghost = "";
   if (playing && !alive) ghost = "☠ you're dead. enjoy the show - no pointing, no voting.";
@@ -238,13 +288,13 @@ function render() {
   // per-stage rendering
   if (phase === "lobby") renderLobbyStage(s);
   if (phase === "night") renderNight(s, alive, inRound);
-  if (phase === "day") renderDay(s);
+  if (phase === "day") renderDay(s, isLead);
   if (phase === "nominating") renderNoms(s, alive, inRound);
-  if (phase === "trial" || phase === "verdict") renderTrial(s, alive, inRound, phase);
-  if (phase === "reveal") renderReveal(s);
+  if (phase === "trial" || phase === "verdict") renderTrial(s, alive, inRound, phase, isLead);
+  if (phase === "reveal") renderReveal(s, isLead);
 
-  // host escape hatch
-  const forcible = me.isHost && ["night", "nominating", "verdict"].includes(phase);
+  // host/mayor escape hatch
+  const forcible = isLead && ["night", "nominating", "verdict"].includes(phase);
   $("forceRow").classList.toggle("hidden", !forcible);
 
   renderMembers(s, phase);
@@ -295,7 +345,7 @@ function renderNight(s, alive, inRound) {
   $("nightDone").classList.toggle("hidden", !locked);
 }
 
-function renderDay(s) {
+function renderDay(s, isLead) {
   const r = s.report;
   let text = "";
   if (r) {
@@ -310,7 +360,7 @@ function renderDay(s) {
     }
   }
   $("reportText").textContent = text;
-  $("openNomsRow").classList.toggle("hidden", !me.isHost);
+  $("openNomsRow").classList.toggle("hidden", !isLead);
 }
 
 function renderNoms(s, alive, inRound) {
@@ -337,7 +387,7 @@ function renderNoms(s, alive, inRound) {
   $("nomDone").classList.toggle("hidden", !locked);
 }
 
-function renderTrial(s, alive, inRound, phase) {
+function renderTrial(s, alive, inRound, phase, isLead) {
   const voting = phase === "verdict";
   const box = $("posters");
   box.innerHTML = "";
@@ -369,11 +419,11 @@ function renderTrial(s, alive, inRound, phase) {
   $("trialLead").textContent = voting
     ? (iAmAccused ? "the town votes on your fate. sit tight." : "pick who hangs. choose well.")
     : "each gives their speech. then the town decides.";
-  $("callVoteRow").classList.toggle("hidden", !(me.isHost && !voting));
+  $("callVoteRow").classList.toggle("hidden", !(isLead && !voting));
   $("voteDone").classList.toggle("hidden", !(voting && priv?.votedFor !== undefined));
 }
 
-function renderReveal(s) {
+function renderReveal(s, isLead) {
   const v = s.verdict;
   if (!v) return;
   const name = nameOf(v.condemnedId);
@@ -386,7 +436,10 @@ function renderReveal(s) {
   if (v.hung) bits.push("The jury hung - a coin decided.");
   bits.push(`${name} swung as ${v.condemnedCard.title} (${v.condemnedCard.rank}${v.condemnedCard.suit}).`);
   if (v.wasMafia) bits.push("The town sleeps easy tonight. Point: town.");
-  else bits.push(`The real mafia - ${nameOf(v.mafiaId)} - walks free. Point: mafia.`);
+  else {
+    const mafiaNames = (v.mafiaIds || []).map(nameOf).join(" & ");
+    bits.push(`The real mafia - ${mafiaNames} - walk${v.mafiaIds?.length === 1 ? "s" : ""} free. Point: mafia.`);
+  }
   $("revealText").textContent = bits.join(" ");
 
   const all = $("allCards");
@@ -403,7 +456,7 @@ function renderReveal(s) {
       all.appendChild(div);
     }
   }
-  $("nextRow").classList.toggle("hidden", !me.isHost);
+  $("nextRow").classList.toggle("hidden", !isLead);
 }
 
 function paintCard(imgId, titleId, card) {
@@ -434,6 +487,7 @@ function renderMembers(s, phase) {
     const tags = [];
     if (m.id === me.memberId) tags.push(`<span class="you-tag">you</span>`);
     if (m.isHost) tags.push(`<span class="host-tag">host</span>`);
+    if (m.id === s.mayorId) tags.push(`<span class="mayor-tag">🎩 mayor</span>`);
     let status = "";
     if (phase !== "lobby" && !m.inRound) status = "at the bar";
     else if (m.inRound && !m.alive) status = "☠ dead";
@@ -519,11 +573,12 @@ function emitSettings() {
     settings: {
       sheriffEnabled: $("setSheriff").checked,
       angelEnabled: $("setAngel").checked,
+      mayorEnabled: $("setMayor").checked,
       revealAllCards: $("setRevealAll").checked,
     },
   });
 }
-for (const id of ["setSheriff", "setAngel", "setRevealAll"]) {
+for (const id of ["setSheriff", "setAngel", "setMayor", "setRevealAll"]) {
   $(id).addEventListener("change", emitSettings);
 }
 

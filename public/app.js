@@ -27,6 +27,7 @@ function hide(el) { el.classList.add("hidden"); }
 // ── lobby ──────────────────────────────────────────────────────────────────
 
 async function createRoom() {
+  if ($("joinCode").value.trim()) return; // a code in the field means you're joining
   const name = $("name").value.trim() || "Host";
   const res = await fetch("/api/rooms", {
     method: "POST",
@@ -467,10 +468,16 @@ function renderMembers(s, phase) {
 
 $("create").addEventListener("click", createRoom);
 $("join").addEventListener("click", () => joinRoom());
-// typing a table code means you're joining, not hosting
-$("joinCode").addEventListener("input", () => {
-  $("create").disabled = $("joinCode").value.trim().length > 0;
-});
+// a table code in the field means you're joining, not hosting - covers
+// typing, paste, autofill, and values the browser restores on back/reload
+function syncCreate() {
+  const joining = $("joinCode").value.trim().length > 0;
+  $("create").disabled = joining;
+  $("create").textContent = joining ? "clear the code to host" : "open the saloon";
+}
+$("joinCode").addEventListener("input", syncCreate);
+window.addEventListener("pageshow", syncCreate);
+syncCreate();
 $("joinHash").addEventListener("click", () => joinRoom(hashCode()));
 $("backToMain").addEventListener("click", () => {
   history.replaceState(null, "", location.pathname);

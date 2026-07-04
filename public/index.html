@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="mafia" />
+  <meta name="theme-color" content="#17110b" />
+  <title>MAFIA</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Rye&family=Special+Elite&family=Crimson+Pro:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/tokens.css" />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="bg" aria-hidden="true">
+    <div class="lamp lamp-a"></div>
+    <div class="lamp lamp-b"></div>
+  </div>
+
+  <main id="app">
+    <!-- ═══════════ lobby ═══════════ -->
+    <section id="lobby" class="card">
+      <p class="est">est. tonight · pop. dwindling</p>
+      <h1 class="title">MAFIA</h1>
+      <p class="tagline" id="lobbyTagline">a saloon full of liars. one of them is armed.</p>
+      <p class="join-banner hidden" id="joinBanner">
+        pull up a stool at table <code id="joinBannerCode"></code>
+      </p>
+
+      <label class="field">
+        <span>your name</span>
+        <input id="name" placeholder="jack" maxlength="40" autocomplete="off" />
+      </label>
+
+      <div id="createBlock">
+        <button id="create" class="btn btn-primary btn-big">open the saloon</button>
+        <div class="divider"><span>or join a table</span></div>
+        <div class="row">
+          <input id="joinCode" placeholder="TABLE CODE" maxlength="6" class="code-input" autocomplete="off" />
+          <button id="join" class="btn btn-secondary">sit down</button>
+        </div>
+      </div>
+
+      <div id="joinBlock" class="hidden">
+        <button id="joinHash" class="btn btn-primary btn-big">sit down</button>
+        <button id="backToMain" class="link back-link">← back out the doors</button>
+      </div>
+
+      <p id="lobbyErr" class="err" role="alert"></p>
+    </section>
+
+    <!-- ═══════════ room ═══════════ -->
+    <section id="room" class="card hidden">
+      <header class="room-header">
+        <div class="room-code-box">
+          <span class="label">table</span>
+          <code id="roomId">----</code>
+          <button id="copyLink" class="link">copy link</button>
+        </div>
+        <div class="right">
+          <span id="youAre" class="muted"></span>
+          <button id="settingsBtn" class="link hidden">⚙ house rules</button>
+        </div>
+      </header>
+
+      <div id="settingsModal" class="modal hidden" aria-hidden="true">
+        <div class="modal-backdrop" data-close></div>
+        <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+          <div class="modal-head">
+            <h3 id="settingsTitle">house rules</h3>
+            <button class="modal-close" data-close aria-label="close">✕</button>
+          </div>
+          <label class="toggle"><input type="checkbox" id="setSheriff" /><span>deal the Sheriff (K♥) - investigates one player each night</span></label>
+          <label class="toggle"><input type="checkbox" id="setAngel" /><span>deal the Angel (A♥) - watches over one player each night</span></label>
+          <label class="toggle"><input type="checkbox" id="setRevealAll" /><span>flip everyone's card at the end of the round</span></label>
+          <p class="muted small">rule changes take effect at the next deal.</p>
+          <button class="btn btn-secondary modal-done" data-close>done</button>
+        </div>
+      </div>
+
+      <div class="phase-row">
+        <span id="phaseLabel" class="pill">gathering</span>
+        <span id="waitLabel" class="counts"></span>
+        <span class="score" id="scoreBox" title="rounds won">
+          <span class="score-side">town <b id="scoreTown">0</b></span>
+          <span class="score-sep">·</span>
+          <span class="score-side score-mafia">mafia <b id="scoreMafia">0</b></span>
+        </span>
+      </div>
+
+      <!-- your card: face-down, hold to peek -->
+      <div id="myCardBox" class="my-card-box hidden">
+        <button id="myCard" class="playing-card" aria-label="your card - hold to peek">
+          <span class="card-inner">
+            <span class="card-back"><img src="/cards/back.svg" alt="" draggable="false" /></span>
+            <span class="card-face">
+              <img id="cardImg" src="/cards/back.svg" alt="" draggable="false" />
+              <span class="card-plate" id="cardTitle"></span>
+            </span>
+          </span>
+        </button>
+        <p class="hold-hint">hold the card to peek - <span id="cardBlurbSlot">keep it close to your chest</span></p>
+      </div>
+
+      <!-- the deal: brief riffle of card backs -->
+      <div id="shuffleOverlay" class="shuffle-overlay hidden" aria-hidden="true">
+        <img class="shuf s1" src="/cards/back.svg" alt="" />
+        <img class="shuf s2" src="/cards/back.svg" alt="" />
+        <img class="shuf s3" src="/cards/back.svg" alt="" />
+        <img class="shuf s4" src="/cards/back.svg" alt="" />
+        <img class="shuf s5" src="/cards/back.svg" alt="" />
+      </div>
+
+      <p id="privateNote" class="private-note hidden"></p>
+      <p id="ghostNote" class="ghost-note hidden"></p>
+
+      <!-- ─── waiting for the deal ─── -->
+      <div id="stageLobby" class="stage hidden">
+        <p class="stage-lead" id="lobbyHint"></p>
+        <div class="host-actions hidden" id="dealRow">
+          <button id="dealBtn" class="btn btn-accent btn-big">deal the cards</button>
+        </div>
+      </div>
+
+      <!-- ─── night ─── -->
+      <div id="stageNight" class="stage hidden">
+        <h2 class="stage-head">night falls on the saloon</h2>
+        <p class="stage-lead" id="nightPrompt"></p>
+        <div id="nightGrid" class="pick-grid" role="listbox" aria-label="choose a player"></div>
+        <div class="row center">
+          <button id="nightLock" class="btn btn-primary btn-big" disabled>lock it in</button>
+        </div>
+        <p id="nightDone" class="done-note hidden">your move is made. wait for sunrise.</p>
+      </div>
+
+      <!-- ─── day report ─── -->
+      <div id="stageDay" class="stage hidden">
+        <h2 class="stage-head">sunrise</h2>
+        <div class="report" id="reportBox">
+          <p class="report-text" id="reportText"></p>
+        </div>
+        <p class="stage-lead">talk it over. when the table's ready, the host opens nominations.</p>
+        <div class="host-actions hidden" id="openNomsRow">
+          <button id="openNomsBtn" class="btn btn-accent btn-big">open nominations</button>
+        </div>
+      </div>
+
+      <!-- ─── nominations ─── -->
+      <div id="stageNoms" class="stage hidden">
+        <h2 class="stage-head">point two fingers</h2>
+        <p class="stage-lead">nominate <b>two</b> players you don't trust. the two most-accused stand trial.</p>
+        <div id="nomGrid" class="pick-grid" role="listbox" aria-label="nominate two players"></div>
+        <div class="row center">
+          <button id="nomLock" class="btn btn-primary btn-big" disabled>lock them in</button>
+        </div>
+        <p id="nomDone" class="done-note hidden">your accusations are in.</p>
+      </div>
+
+      <!-- ─── trial ─── -->
+      <div id="stageTrial" class="stage hidden">
+        <h2 class="stage-head">the accused stand</h2>
+        <p class="stage-lead" id="trialLead">each gives their speech. then the town decides.</p>
+        <div id="posters" class="posters"></div>
+        <div class="host-actions hidden" id="callVoteRow">
+          <button id="callVoteBtn" class="btn btn-accent btn-big">call the vote</button>
+        </div>
+        <p id="voteDone" class="done-note hidden">your vote is cast.</p>
+      </div>
+
+      <!-- ─── reveal ─── -->
+      <div id="stageReveal" class="stage hidden">
+        <h2 class="stage-head" id="revealHead"></h2>
+        <div class="reveal-flip">
+          <div id="revealCard" class="playing-card small flipped">
+            <span class="card-inner">
+              <span class="card-back"><img src="/cards/back.svg" alt="" draggable="false" /></span>
+              <span class="card-face">
+                <img id="rvImg" src="/cards/back.svg" alt="" draggable="false" />
+                <span class="card-plate" id="rvTitle"></span>
+              </span>
+            </span>
+          </div>
+        </div>
+        <p class="reveal-text" id="revealText"></p>
+        <div id="allCards" class="all-cards"></div>
+        <div class="host-actions hidden" id="nextRow">
+          <button id="nextBtn" class="btn btn-accent btn-big">shuffle up - next round</button>
+        </div>
+      </div>
+
+      <!-- host escape hatch -->
+      <div class="row center hidden" id="forceRow">
+        <button id="forceBtn" class="link">⏭ move it along (skip stragglers)</button>
+      </div>
+
+      <!-- who's at the table -->
+      <ul id="members" class="members"></ul>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <span class="credit">
+      Made with <span class="heart" aria-hidden="true">♥</span> by <a href="https://github.com/jackowfish" class="signature" rel="noopener noreferrer">Jack Decker</a>
+    </span>
+  </footer>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>

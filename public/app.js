@@ -636,3 +636,19 @@ $("copyLink").addEventListener("click", async () => {
 });
 
 applyHashMode();
+
+// raise the curtain on arrival - once per visit, skipped on plain refreshes
+(function raiseCurtains() {
+  const el = $("curtains");
+  let seen = false;
+  try {
+    seen = !!sessionStorage.getItem("mafia:curtains");
+    sessionStorage.setItem("mafia:curtains", "1");
+  } catch {}
+  if (seen || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    el.remove();
+    return;
+  }
+  setTimeout(() => el.classList.add("open"), 500);
+  setTimeout(() => el.remove(), 2700);
+})();

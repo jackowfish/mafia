@@ -338,7 +338,7 @@ function renderResults(s) {
 
   if (v.hung) {
     $("resultsHead").textContent = "the jury hangs.";
-    $("resultsLead").textContent = "dead heat. the mayor makes the call.";
+    $("resultsLead").textContent = "dead heat. talk it out - then the town votes again. same two on the posters.";
     hide($("condemnedBox"));
   } else {
     $("resultsHead").textContent = "the town has spoken.";
@@ -369,6 +369,10 @@ function renderResults(s) {
   }
 
   $("resultsActions").classList.toggle("hidden", !me.isHost);
+  $("revoteBtn").classList.toggle("hidden", !v.hung);
+  // a hung jury revotes; moving on to the next day is the fallback
+  $("openNomsBtn2").classList.toggle("btn-accent", !v.hung);
+  $("openNomsBtn2").classList.toggle("btn-secondary", v.hung);
 }
 
 function renderReveal(s) {
@@ -462,6 +466,7 @@ $("openNomsBtn").addEventListener("click", () => emitSimple("openNominations")()
 $("openNomsBtn2").addEventListener("click", () => emitSimple("openNominations")());
 $("closeNomsBtn").addEventListener("click", () => emitSimple("closeNominations")());
 $("callVoteBtn").addEventListener("click", () => emitSimple("callVote")());
+$("revoteBtn").addEventListener("click", () => emitSimple("revote")());
 $("closeVoteBtn").addEventListener("click", () => emitSimple("closeVote")());
 $("revealBtn").addEventListener("click", () => emitSimple("reveal")());
 $("revealBtn2").addEventListener("click", () => emitSimple("reveal")());

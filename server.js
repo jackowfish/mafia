@@ -418,6 +418,17 @@ io.on("connection", (socket) => {
     await saveGame(joined.roomId, g);
   }, { hostOnly: true }));
 
+  // hung jury: same two accused, the town talks it out and votes again.
+  // the mayor knows every hand, so the tiebreak is never theirs to make.
+  socket.on("revote", withRoom(async (r) => {
+    const g = r.game;
+    if (!g || g.phase !== "results" || !g.verdict?.hung) return "the jury isn't hung";
+    g.votes = {};
+    g.verdict = null;
+    g.phase = "verdict";
+    await saveGame(joined.roomId, g);
+  }, { hostOnly: true }));
+
   // flip every card face-up - the round is over
   socket.on("reveal", withRoom(async (r) => {
     const g = r.game;

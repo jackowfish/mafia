@@ -162,6 +162,9 @@ function closeNominations(g) {
   for (const picks of Object.values(g.nominations)) {
     for (const id of picks) tally[id] = (tally[id] || 0) + 1;
   }
+  for (const id of Object.keys(tally)) {
+    if (!g.players.includes(id)) delete tally[id]; // nominee left the table
+  }
   const ranked = Object.keys(tally).sort((a, b) => tally[b] - tally[a]);
   if (ranked.length < 2) return false;
   g.tally = tally;
@@ -214,6 +217,35 @@ function closeVote(g) {
   const condemnedId = hung ? null : counts[a] > counts[b] ? a : b;
   g.verdict = { counts, votes: { ...g.votes }, hung, condemnedId };
   g.phase = "results";
+}
+
+// pull somebody out of the running round (they left or got dropped).
+// returns an error string, or null after cleanly removing them.
+function removeFromRound(g, memberId) {
+  if (!g || !g.players.includes(memberId)) return null;
+  if (["trial", "verdict"].includes(g.phase) && g.accused.includes(memberId)) {
+    return "not while they're on trial - see it through first";
+  }
+  if (g.phase === "runoff" && g.runoff.candidates.includes(memberId)) {
+    return "not mid-runoff - settle it first";
+  }
+  g.players = g.players.filter((id) => id !== memberId);
+  delete g.cards[memberId];
+  delete g.nominations[memberId];
+  delete g.votes[memberId];
+  if (g.runoff) delete g.runoff.picks[memberId];
+  // their exit might be the last thing a phase was waiting on
+  if (g.players.length) {
+    if (g.phase === "nominating" && g.players.every((id) => g.nominations[id] !== undefined)) {
+      closeNominations(g);
+    } else if (g.phase === "runoff" && g.players.every((id) => g.runoff.picks[id] !== undefined)) {
+      closeRunoff(g);
+    } else if (g.phase === "verdict") {
+      const voters = g.players.filter((id) => !g.accused.includes(id));
+      if (voters.length && voters.every((id) => g.votes[id] !== undefined)) closeVote(g);
+    }
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -373,7 +405,13 @@ io.on("connection", (socket) => {
     } else if (id && r.members[id]) {
       // returning member
     } else {
-      id = crypto.randomUUID();
+      // no usable member id - reclaim a seat by name if one exists, so the
+      // same person joining again doesn't fill a second chair
+      const wanted = (name || "").trim().toLowerCase();
+      const seat = wanted && Object.entries(r.members).find(
+        ([mid, n]) => mid !== r.meta.hostId && n.trim().toLowerCase() === wanted
+      );
+      id = seat ? seat[0] : crypto.randomUUID();
     }
 
     const displayName = (name || r.members[id] || "Stranger").toString().slice(0, 40);
@@ -509,6 +547,27 @@ io.on("connection", (socket) => {
     if (!g) return "no round in progress";
     g.phase = "reveal";
     await saveGame(joined.roomId, g);
+  }, { hostOnly: true }));
+
+  // a player walks out - their seat empties for good
+  socket.on("leave", withRoom(async (r) => {
+    const me = joined.memberId;
+    if (me === r.meta.hostId) return "the mayor can't leave their own table";
+    const err = removeFromRound(r.game, me);
+    if (err) return err;
+    await redis.hdel(keys.members(joined.roomId), me);
+    if (r.game) await saveGame(joined.roomId, r.game);
+  }));
+
+  // the mayor shows somebody the door
+  socket.on("dropMember", withRoom(async (r, { memberId }) => {
+    if (memberId === r.meta.hostId) return "you can't drop yourself";
+    if (!r.members[memberId]) return "no such player";
+    const err = removeFromRound(r.game, memberId);
+    if (err) return err;
+    await redis.hdel(keys.members(joined.roomId), memberId);
+    if (r.game) await saveGame(joined.roomId, r.game);
+    io.to(`${joined.roomId}:m:${memberId}`).emit("kicked");
   }, { hostOnly: true }));
 
   socket.on("settings", withRoom(async (r, { settings }) => {

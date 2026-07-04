@@ -194,8 +194,6 @@ input:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px
 }
 .link:hover { color: var(--color-lamp); }
 
-.back-link { display: block; margin: var(--space-md) auto 0; }
-
 .err { color: var(--color-err); font-style: italic; margin-top: var(--space-md); min-height: 1.2em; }
 .muted { color: var(--color-muted); }
 .small { font-size: var(--text-sm); }
@@ -587,11 +585,24 @@ input:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px
   margin-top: var(--space-md);
 }
 .members li {
+  position: relative;
   background: var(--color-night);
   border: 1px solid var(--color-edge);
   border-radius: var(--radius-sm);
   padding: var(--space-xs) var(--space-sm);
 }
+.members li:has(.drop-btn) { padding-right: calc(var(--space-sm) + 14px); }
+.drop-btn {
+  position: absolute;
+  top: 2px; right: 4px;
+  background: none; border: none;
+  color: var(--color-muted);
+  font-size: var(--text-xs);
+  line-height: 1;
+  padding: var(--space-2xs);
+  cursor: pointer;
+}
+.drop-btn:hover { color: var(--color-err); }
 .members li.acted { border-color: oklch(45% 0.08 145); }
 .m-name {
   font-size: var(--text-sm);

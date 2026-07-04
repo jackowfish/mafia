@@ -54,22 +54,38 @@ function hashCode() {
   return location.hash.length > 1 ? location.hash.slice(1).toUpperCase() : "";
 }
 
+// one lobby screen for everything: a shared link just prefills the code
 function applyHashMode() {
   const code = hashCode();
   if (code) {
-    hide($("createBlock"));
-    show($("joinBlock"));
     hide($("lobbyTagline"));
     show($("joinBanner"));
     $("joinBannerCode").textContent = code;
     $("joinCode").value = code;
     setTimeout(() => $("name").focus(), 50);
   } else {
-    show($("createBlock"));
-    hide($("joinBlock"));
     show($("lobbyTagline"));
     hide($("joinBanner"));
   }
+  syncCreate();
+}
+
+function exitToLobby(msg = "") {
+  try { socket?.disconnect(); } catch {}
+  socket = null;
+  latest = null;
+  priv = null;
+  renderedPhase = null;
+  renderedRound = null;
+  me = { roomId: null, memberId: null, isHost: false, name: me.name };
+  hide($("room"));
+  hide($("settingsBtn"));
+  hide($("renameBtn"));
+  show($("lobby"));
+  $("lobbyErr").textContent = msg;
+  $("joinCode").value = "";
+  history.replaceState(null, "", location.pathname);
+  applyHashMode();
 }
 
 function enterRoom(roomId, name, { hostToken } = {}) {
@@ -81,6 +97,12 @@ function enterRoom(roomId, name, { hostToken } = {}) {
   let firstJoin = true;
 
   socket = io();
+
+  socket.on("kicked", () => {
+    // the seat is gone - forget it so a rejoin starts fresh
+    store.set(roomId, { name: (store.get(roomId) || {}).name });
+    exitToLobby("the mayor showed you the door.");
+  });
 
   const doJoin = () => {
     const s2 = store.get(roomId) || {};
@@ -120,10 +142,13 @@ function enterRoom(roomId, name, { hostToken } = {}) {
   // re-emit join on every (re)connect so the socket gets put back in the
   // room and resumes receiving state broadcasts after a disconnect
   socket.on("connect", doJoin);
+  rejoin = doJoin;
 
   socket.on("state", (s) => { latest = s; render(); });
   socket.on("private", (p) => { priv = p; render(); });
 }
+
+let rejoin = null; // re-emits join on the live socket (used after a rename)
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -185,6 +210,9 @@ function render() {
   // settings
   $("setSheriff").checked = !!s.settings.sheriffEnabled;
   $("setAngel").checked = !!s.settings.angelEnabled;
+
+  // names settle once the first hand is dealt
+  $("renameBtn").classList.toggle("hidden", phase !== "lobby");
 
   // stages
   for (const id of STAGES) hide($(id));
@@ -460,6 +488,19 @@ function renderMembers(s, phase) {
       <div class="m-name">${escapeHtml(m.name)} ${tags.join(" ")}</div>
       <div class="m-status">${status}</div>
     `;
+    if (me.isHost && !m.isHost) {
+      const x = document.createElement("button");
+      x.className = "drop-btn";
+      x.title = `drop ${m.name}`;
+      x.setAttribute("aria-label", `drop ${m.name}`);
+      x.textContent = "✕";
+      x.addEventListener("click", () => {
+        if (confirm(`show ${m.name} the door?`)) {
+          emitSimple("dropMember")({ memberId: m.id });
+        }
+      });
+      li.appendChild(x);
+    }
     ul.appendChild(li);
   }
 }
@@ -478,12 +519,28 @@ function syncCreate() {
 $("joinCode").addEventListener("input", syncCreate);
 window.addEventListener("pageshow", syncCreate);
 syncCreate();
-$("joinHash").addEventListener("click", () => joinRoom(hashCode()));
-$("backToMain").addEventListener("click", () => {
-  history.replaceState(null, "", location.pathname);
-  applyHashMode();
-});
 window.addEventListener("hashchange", applyHashMode);
+
+$("leaveBtn").addEventListener("click", () => {
+  if (!me.roomId) return;
+  const midGame = latest && latest.phase !== "lobby" && !me.isHost;
+  if (midGame && !confirm("walk out mid-game? your seat empties for good.")) return;
+  if (!me.isHost) {
+    socket?.emit("leave", {}, () => {});
+    // forget the seat; the name sticks around for next time
+    store.set(me.roomId, { name: (store.get(me.roomId) || {}).name });
+  }
+  exitToLobby();
+});
+
+$("renameBtn").addEventListener("click", () => {
+  const n = (prompt("your name", me.name) || "").trim().slice(0, 40);
+  if (!n || n === me.name) return;
+  me.name = n;
+  store.set(me.roomId, { ...(store.get(me.roomId) || {}), name: n });
+  $("youAre").textContent = `you: ${n}${me.isHost ? " (mayor)" : ""}`;
+  rejoin?.();
+});
 
 const emitSimple = (event) => (payload = {}) =>
   socket.emit(event, payload, (r) => { if (r?.error) alert(r.error); });

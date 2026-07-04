@@ -35,19 +35,12 @@
         <input id="name" placeholder="jack" maxlength="40" autocomplete="off" />
       </label>
 
-      <div id="createBlock">
-        <button id="create" class="btn btn-primary btn-big">open the saloon</button>
-        <div class="divider"><span>or join a table</span></div>
-        <div class="row">
-          <input id="joinCode" placeholder="TABLE CODE" maxlength="6" class="code-input" autocomplete="off" />
-          <button id="join" class="btn btn-secondary">sit down</button>
-        </div>
+      <div class="row">
+        <input id="joinCode" placeholder="TABLE CODE" maxlength="6" class="code-input" autocomplete="off" />
+        <button id="join" class="btn btn-secondary">sit down</button>
       </div>
-
-      <div id="joinBlock" class="hidden">
-        <button id="joinHash" class="btn btn-primary btn-big">sit down</button>
-        <button id="backToMain" class="link back-link">← back out the doors</button>
-      </div>
+      <div class="divider"><span>or</span></div>
+      <button id="create" class="btn btn-primary btn-big">open the saloon</button>
 
       <p id="lobbyErr" class="err" role="alert"></p>
     </section>
@@ -62,7 +55,9 @@
         </div>
         <div class="right">
           <span id="youAre" class="muted"></span>
+          <button id="renameBtn" class="link hidden">✏ name</button>
           <button id="settingsBtn" class="link hidden">⚙ house rules</button>
+          <button id="leaveBtn" class="link">↩ leave</button>
         </div>
       </header>
 

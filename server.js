@@ -71,7 +71,7 @@ const TOWN_CODES = Object.keys(CARDS).filter((c) => CARDS[c].role === "town");
 const MAFIA_CARDS = ["AS", "AC", "AD"];
 
 // the black aces come out one at a time as the table grows
-const mafiaCountFor = (n) => (n >= 11 ? 3 : n >= 8 ? 2 : 1);
+const mafiaCountFor = (n) => (n >= 13 ? 3 : n >= 9 ? 2 : 1);
 
 const cardPublic = (code) => {
   const c = CARDS[code];

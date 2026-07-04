@@ -14,7 +14,7 @@ Every card is a face card from a real deck (SVGs from [me.uk/cards](https://www.
 | K♠ | The Mayor (optional) | runs the table; their card is public so everyone knows they're clean |
 | everything else | Townsperson | points at somebody (decoy, so every screen looks the same) |
 
-The black aces come out one at a time as the table grows: 1 mafia at 4-7 players, 2 at 8-10, 3 at 11+. The mafia know each other and can't shoot their own. The Mayor gets a private script of stage directions (what to read at sunrise, when to open nominations, whose speeches to call) plus the phase controls, and still plays - nominates, votes, and can be shot.
+The black aces come out one at a time as the table grows: 1 mafia at 4-8 players, 2 at 9-12, 3 at 13+. The mafia know each other and can't shoot their own. The Mayor gets a private script of stage directions (what to read at sunrise, when to open nominations, whose speeches to call) plus the phase controls, and still plays - nominates, votes, and can be shot.
 
 ## A round
 

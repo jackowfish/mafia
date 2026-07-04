@@ -141,6 +141,7 @@ const PHASE_LABELS = {
   lobby: "gathering",
   table: "cards out",
   nominating: "nominations",
+  runoff: "runoff",
   trial: "the trial",
   verdict: "the vote",
   results: "judgment",
@@ -176,6 +177,7 @@ function render() {
   if (s.round > 0) waitBits.push(`round ${s.round}`);
   if (s.mafiaCount > 0) waitBits.push(`${s.mafiaCount} mafia dealt`);
   if (phase === "nominating") waitBits.push(`${s.nomsIn}/${s.nomsTotal} accusations in`);
+  if (phase === "runoff") waitBits.push(`${s.runoff.picksIn}/${s.runoff.picksTotal} runoff picks in`);
   if (phase === "verdict") waitBits.push(`${s.votesIn}/${s.votersTotal} votes in`);
   $("waitLabel").textContent = waitBits.join(" · ");
 
@@ -189,6 +191,7 @@ function render() {
     lobby: "stageLobby",
     table: "stageTable",
     nominating: "stageNoms",
+    runoff: "stageNoms",
     trial: "stageTrial",
     verdict: "stageTrial",
     results: "stageResults",
@@ -230,7 +233,7 @@ function render() {
   // per-stage rendering
   if (phase === "lobby") renderLobbyStage(s);
   if (phase === "table") renderTable(s);
-  if (phase === "nominating") renderNoms(s, inRound);
+  if (phase === "nominating" || phase === "runoff") renderNoms(s, inRound, phase);
   if (phase === "trial" || phase === "verdict") renderTrial(s, inRound, phase);
   if (phase === "results") renderResults(s);
   if (phase === "reveal") renderReveal(s);
@@ -268,29 +271,48 @@ function pickTile(m, selected, disabled) {
   return b;
 }
 
-function renderNoms(s, inRound) {
+function renderNoms(s, inRound, phase) {
+  const runoff = phase === "runoff";
+  const seats = runoff ? s.runoff.seats : 2;
+  const pool = s.members.filter((m) =>
+    runoff ? s.runoff.candidates.includes(m.id) : m.inRound
+  );
+  // narrowed runoffs shrink the pool - drop any stale selections
+  nomSel = nomSel.filter((id) => pool.some((m) => m.id === id)).slice(0, seats);
+
+  if (runoff) {
+    $("nomHead").textContent = "dead heat for the gallows";
+    $("nomPrompt").innerHTML =
+      `${s.runoff.candidates.length} tied for ${seats === 1 ? "the last poster" : "the posters"}. ` +
+      `point <b>${seats === 1 ? "one finger" : "two fingers"}</b> - among the tied only.`;
+  } else {
+    $("nomHead").textContent = "point two fingers";
+    $("nomPrompt").innerHTML = "nominate <b>two</b> players you don't trust. the two most-accused stand trial.";
+  }
+  $("closeNomsBtn").textContent = runoff ? "close the runoff" : "close nominations";
+
   const grid = $("nomGrid");
   grid.innerHTML = "";
-  const locked = !!priv?.nominated;
+  const locked = runoff ? !!priv?.runoffPick : !!priv?.nominated;
 
   $("closeNomsRow").classList.toggle("hidden", !me.isHost);
   if (!inRound) { hide($("nomLock")); hide($("nomDone")); return; }
 
-  const chosen = locked ? priv.nominated : nomSel;
-  for (const m of s.members) {
-    if (!m.inRound || m.id === me.memberId) continue;
+  const chosen = locked ? (runoff ? priv.runoffPick : priv.nominated) : nomSel;
+  for (const m of pool) {
+    if (m.id === me.memberId) continue;
     const isSel = chosen.includes(m.id);
     const tile = pickTile(m, isSel, locked);
     tile.addEventListener("click", () => {
       if (nomSel.includes(m.id)) nomSel = nomSel.filter((x) => x !== m.id);
-      else if (nomSel.length < 2) nomSel = [...nomSel, m.id];
-      else nomSel = [nomSel[1], m.id];
+      else if (nomSel.length < seats) nomSel = [...nomSel, m.id];
+      else nomSel = [...nomSel.slice(1), m.id];
       render();
     });
     grid.appendChild(tile);
   }
   $("nomLock").classList.toggle("hidden", locked);
-  $("nomLock").disabled = nomSel.length !== 2;
+  $("nomLock").disabled = nomSel.length !== seats;
   $("nomDone").classList.toggle("hidden", !locked);
 }
 
@@ -423,7 +445,7 @@ function runShuffle() {
 function renderMembers(s, phase) {
   const ul = $("members");
   ul.innerHTML = "";
-  const showStatus = ["nominating", "verdict"].includes(phase);
+  const showStatus = ["nominating", "runoff", "verdict"].includes(phase);
   for (const m of s.members) {
     const li = document.createElement("li");
     if (showStatus && m.acted && m.inRound) li.classList.add("acted");
@@ -464,7 +486,8 @@ $("redealBtn").addEventListener("click", () => emitSimple("deal")());
 $("nextBtn").addEventListener("click", () => emitSimple("deal")());
 $("openNomsBtn").addEventListener("click", () => emitSimple("openNominations")());
 $("openNomsBtn2").addEventListener("click", () => emitSimple("openNominations")());
-$("closeNomsBtn").addEventListener("click", () => emitSimple("closeNominations")());
+$("closeNomsBtn").addEventListener("click", () =>
+  emitSimple(latest?.phase === "runoff" ? "closeRunoff" : "closeNominations")());
 $("callVoteBtn").addEventListener("click", () => emitSimple("callVote")());
 $("revoteBtn").addEventListener("click", () => emitSimple("revote")());
 $("closeVoteBtn").addEventListener("click", () => emitSimple("closeVote")());
@@ -472,8 +495,13 @@ $("revealBtn").addEventListener("click", () => emitSimple("reveal")());
 $("revealBtn2").addEventListener("click", () => emitSimple("reveal")());
 
 $("nomLock").addEventListener("click", () => {
-  if (nomSel.length !== 2) return;
-  emitSimple("nominate")({ picks: nomSel });
+  if (latest?.phase === "runoff") {
+    if (nomSel.length !== latest.runoff.seats) return;
+    emitSimple("runoffPick")({ picks: nomSel });
+  } else {
+    if (nomSel.length !== 2) return;
+    emitSimple("nominate")({ picks: nomSel });
+  }
 });
 
 // hold-to-peek on your card - the role text only shows while held,

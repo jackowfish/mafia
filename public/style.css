@@ -241,7 +241,7 @@ input:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px
   color: var(--color-text);
 }
 .pill[data-phase="table"] { background: oklch(35% 0.07 75); border-color: var(--color-lamp-dim); color: var(--color-paper); }
-.pill[data-phase="nominating"] { background: oklch(24% 0.05 280); border-color: oklch(38% 0.06 280); }
+.pill[data-phase="nominating"], .pill[data-phase="runoff"] { background: oklch(24% 0.05 280); border-color: oklch(38% 0.06 280); }
 .pill[data-phase="trial"], .pill[data-phase="verdict"] { background: var(--color-blood); border-color: var(--color-blood-bright); color: var(--color-paper); }
 .pill[data-phase="results"], .pill[data-phase="reveal"] { background: var(--color-lamp); color: var(--color-night); border-color: var(--color-lamp-dim); }
 

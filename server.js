@@ -145,6 +145,7 @@ function newRound(playerIds, settings, prev) {
     cards,
     nominations: {},    // memberId -> [a, b]
     tally: null,        // nomineeId -> nomination count
+    runoff: null,       // { candidates, seats, locked, picks } when the cut is tied
     accused: null,      // [idA, idB] - the two most-accused
     votes: {},          // memberId -> accusedId
     verdict: null,      // { counts, votes, hung, condemnedId }
@@ -154,17 +155,52 @@ function newRound(playerIds, settings, prev) {
 const allByRole = (g, role) =>
   g.players.filter((id) => CARDS[g.cards[id]].role === role);
 
+// a tie for the trial spots is never broken by chance or by the mayor -
+// the tied candidates go to a runoff and the town points again
 function closeNominations(g) {
   const tally = {};
   for (const picks of Object.values(g.nominations)) {
     for (const id of picks) tally[id] = (tally[id] || 0) + 1;
   }
-  const ranked = shuffle(Object.keys(tally)).sort((a, b) => tally[b] - tally[a]);
+  const ranked = Object.keys(tally).sort((a, b) => tally[b] - tally[a]);
   if (ranked.length < 2) return false;
   g.tally = tally;
-  g.accused = ranked.slice(0, 2);
-  g.phase = "trial";
+  const cut = tally[ranked[1]];
+  const locked = ranked.filter((id) => tally[id] > cut);
+  const tied = ranked.filter((id) => tally[id] === cut);
+  if (locked.length + tied.length === 2) {
+    g.accused = [...locked, ...tied];
+    g.phase = "trial";
+  } else {
+    g.runoff = { candidates: tied, seats: 2 - locked.length, locked, picks: {} };
+    g.phase = "runoff";
+  }
   return true;
+}
+
+function closeRunoff(g) {
+  const ro = g.runoff;
+  const counts = Object.fromEntries(ro.candidates.map((id) => [id, 0]));
+  for (const picks of Object.values(ro.picks)) {
+    for (const id of picks) counts[id] += 1;
+  }
+  const ranked = [...ro.candidates].sort((a, b) => counts[b] - counts[a]);
+  const cut = counts[ranked[ro.seats - 1]];
+  const winners = ranked.filter((id) => counts[id] > cut);
+  const tied = ranked.filter((id) => counts[id] === cut);
+  if (winners.length + tied.length === ro.seats) {
+    g.accused = [...ro.locked, ...winners, ...tied];
+    g.runoff = null;
+    g.phase = "trial";
+  } else {
+    // still deadlocked at the cut - narrow to the contested spots and point again
+    g.runoff = {
+      candidates: tied,
+      seats: ro.seats - winners.length,
+      locked: [...ro.locked, ...winners],
+      picks: {},
+    };
+  }
 }
 
 // ties hang the jury - the mayor makes the call at the table
@@ -187,6 +223,7 @@ function closeVote(g) {
 
 function actedThisPhase(g, id) {
   if (g.phase === "nominating") return g.nominations[id] !== undefined;
+  if (g.phase === "runoff") return g.runoff.picks[id] !== undefined;
   if (g.phase === "verdict") {
     if (g.accused.includes(id)) return true; // the accused don't vote
     return g.votes[id] !== undefined;
@@ -218,6 +255,15 @@ function publicState(roomId, r) {
   if (g.phase === "nominating") {
     out.nomsIn = Object.keys(g.nominations).length;
     out.nomsTotal = g.players.length;
+  }
+  if (g.phase === "runoff") {
+    out.runoff = {
+      candidates: g.runoff.candidates,
+      seats: g.runoff.seats,
+      locked: g.runoff.locked,
+      picksIn: Object.keys(g.runoff.picks).length,
+      picksTotal: g.players.length,
+    };
   }
   if (["trial", "verdict", "results"].includes(g.phase) && g.accused) {
     out.accused = g.accused.map((id) => ({ id, count: g.tally[id] || 0 }));
@@ -254,6 +300,7 @@ function privateState(r, id) {
   const code = g.cards[id];
   const out = { card: cardPrivate(code) };
   if (g.nominations[id]) out.nominated = g.nominations[id];
+  if (g.runoff?.picks[id]) out.runoffPick = g.runoff.picks[id];
   if (g.votes[id] !== undefined) out.votedFor = g.votes[id];
   if (CARDS[code].role === "mafia") {
     const partners = allByRole(g, "mafia").filter((m) => m !== id);
@@ -385,6 +432,33 @@ io.on("connection", (socket) => {
     const g = r.game;
     if (!g || g.phase !== "nominating") return "nominations aren't open";
     if (!closeNominations(g)) return "need at least two nominated players";
+    await saveGame(joined.roomId, g);
+  }, { hostOnly: true }));
+
+  socket.on("runoffPick", withRoom(async (r, { picks }) => {
+    const g = r.game;
+    if (!g || g.phase !== "runoff") return "there's no runoff";
+    const me = joined.memberId;
+    if (!g.players.includes(me)) return "you're not in this round";
+    const ro = g.runoff;
+    if (!Array.isArray(picks) || picks.length !== ro.seats) {
+      return `pick exactly ${ro.seats === 1 ? "one" : "two"} of the tied`;
+    }
+    if (new Set(picks).size !== picks.length) return "pick different players";
+    for (const id of picks) {
+      if (!ro.candidates.includes(id)) return "pick among the tied";
+      if (id === me) return "you can't pick yourself";
+    }
+    ro.picks[me] = picks;
+    if (g.players.every((id) => ro.picks[id] !== undefined)) closeRunoff(g);
+    await saveGame(joined.roomId, g);
+  }));
+
+  socket.on("closeRunoff", withRoom(async (r) => {
+    const g = r.game;
+    if (!g || g.phase !== "runoff") return "there's no runoff";
+    if (Object.keys(g.runoff.picks).length === 0) return "nobody has picked yet";
+    closeRunoff(g);
     await saveGame(joined.roomId, g);
   }, { hostOnly: true }));
 

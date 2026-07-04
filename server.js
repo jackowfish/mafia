@@ -38,8 +38,10 @@ const rid = (n = 4) =>
 const tok = () => crypto.randomBytes(16).toString("hex");
 
 // ---------------------------------------------------------------------------
-// the deck - every card is a face card, every card is a different position.
-// classic mafia dealing: Ace = mafia, King = detective, Queen = doctor - here the protector is the Angel on the red ace.
+// the deck - face cards are the roles, number cards are the townsfolk.
+// classic mafia dealing: Ace = mafia, King of hearts = sheriff, the red ace
+// is the Angel. the host holds the King of spades - the Mayor - and runs
+// the table; everything past the deal happens out loud.
 // ---------------------------------------------------------------------------
 
 const CARDS = {
@@ -50,22 +52,19 @@ const CARDS = {
   AD: { rank: "A", suit: "♦", red: true,  role: "mafia",   title: "The Mafia",
         blurb: "Every night you pick somebody to put in the ground. Don't get caught." },
   KH: { rank: "K", suit: "♥", red: true,  role: "sheriff", title: "The Sheriff",
-        blurb: "Every night you investigate one player and learn whether they're the mafia." },
+        blurb: "Every night you point at one player while the town sleeps - the mayor tells you if they're the mafia." },
   AH: { rank: "A", suit: "♥", red: true,  role: "angel",   title: "The Angel",
         blurb: "Every night you pick one soul to watch over. If the mafia comes for them, they live." },
   KS: { rank: "K", suit: "♠", red: false, role: "mayor",   title: "The Mayor",
-        blurb: "You run this town - in the open. Everyone knows you're clean. Read the prompts, keep the meeting moving." },
-  JS: { rank: "J", suit: "♠", red: false, role: "town", title: "Townsperson" },
-  JH: { rank: "J", suit: "♥", red: true,  role: "town", title: "Townsperson" },
-  JD: { rank: "J", suit: "♦", red: true,  role: "town", title: "Townsperson" },
-  JC: { rank: "J", suit: "♣", red: false, role: "town", title: "Townsperson" },
-  QS: { rank: "Q", suit: "♠", red: false, role: "town", title: "Townsperson" },
-  QD: { rank: "Q", suit: "♦", red: true,  role: "town", title: "Townsperson" },
-  QC: { rank: "Q", suit: "♣", red: false, role: "town", title: "Townsperson" },
-  QH: { rank: "Q", suit: "♥", red: true,  role: "town", title: "Townsperson" },
-  KD: { rank: "K", suit: "♦", red: true,  role: "town", title: "Townsperson" },
-  KC: { rank: "K", suit: "♣", red: false, role: "town", title: "Townsperson" },
+        blurb: "You run this town - in the open. Everyone knows you're clean. Narrate the nights, then open the vote." },
 };
+
+const SUITS = { S: ["♠", false], H: ["♥", true], D: ["♦", true], C: ["♣", false] };
+for (const r of ["2", "3", "4", "5", "6", "7", "8", "9", "T"]) {
+  for (const [s, [suit, red]] of Object.entries(SUITS)) {
+    CARDS[r + s] = { rank: r === "T" ? "10" : r, suit, red, role: "town", title: "Townsperson" };
+  }
+}
 const TOWN_BLURB = "You're just here for a drink. Watch faces, point fingers, and vote well.";
 const TOWN_CODES = Object.keys(CARDS).filter((c) => CARDS[c].role === "town");
 const MAFIA_CARDS = ["AS", "AC", "AD"];
@@ -78,15 +77,15 @@ const cardPublic = (code) => {
   return { code, rank: c.rank, suit: c.suit, red: c.red, role: c.role, title: c.title };
 };
 
+const cardPrivate = (code) => ({ ...cardPublic(code), blurb: CARDS[code].blurb || TOWN_BLURB });
+
 const defaultSettings = () => ({
   sheriffEnabled: true,
   angelEnabled: true,
-  mayorEnabled: false,
-  revealAllCards: true,
 });
 
 const specialsCount = (s) =>
-  (s.sheriffEnabled ? 1 : 0) + (s.angelEnabled ? 1 : 0) + (s.mayorEnabled ? 1 : 0);
+  (s.sheriffEnabled ? 1 : 0) + (s.angelEnabled ? 1 : 0);
 const minPlayersFor = (s) => Math.max(4, 2 + specialsCount(s));
 const maxPlayersFor = (s) => TOWN_CODES.length + MAFIA_CARDS.length + specialsCount(s);
 
@@ -129,116 +128,41 @@ function shuffle(arr) {
   return a;
 }
 
-function newRound(memberIds, settings, prev) {
-  const deck = MAFIA_CARDS.slice(0, mafiaCountFor(memberIds.length));
+function newRound(playerIds, settings, prev) {
+  const deck = MAFIA_CARDS.slice(0, mafiaCountFor(playerIds.length));
   if (settings.sheriffEnabled) deck.push("KH");
   if (settings.angelEnabled) deck.push("AH");
-  if (settings.mayorEnabled) deck.push("KS");
-  const townNeeded = memberIds.length - deck.length;
+  const townNeeded = playerIds.length - deck.length;
   deck.push(...shuffle(TOWN_CODES).slice(0, townNeeded));
   const dealt = shuffle(deck);
-  const order = shuffle(memberIds);
+  const order = shuffle(playerIds);
   const cards = {};
   order.forEach((id, i) => (cards[id] = dealt[i]));
   return {
     round: prev ? prev.round + 1 : 1,
-    score: prev ? prev.score : { town: 0, mafia: 0 },
-    phase: "night",
+    phase: "table",   // table -> vote -> results -> (vote again | reveal)
     players: order,
     cards,
-    alive: Object.fromEntries(order.map((id) => [id, true])),
-    picks: {},          // night: memberId -> targetId
-    report: null,       // { victimId, victimCard, saved }
-    sheriff: null,      // { targetId, isMafia } - private to the sheriff
-    nominations: {},    // memberId -> [a, b]
-    tally: null,        // memberId -> nomination count
-    accused: null,      // [idA, idB]
-    votes: {},          // memberId -> accusedId
-    verdict: null,      // { condemnedId, counts, hung, wasMafia, mafiaId }
+    votes: {},        // memberId -> targetId
+    tally: null,      // { counts, votes, top } once a vote closes
   };
 }
-
-const findByRole = (g, role) =>
-  g.players.find((id) => CARDS[g.cards[id]].role === role) || null;
 
 const allByRole = (g, role) =>
   g.players.filter((id) => CARDS[g.cards[id]].role === role);
 
-const aliveIds = (g) => g.players.filter((id) => g.alive[id]);
-
-function actedThisPhase(g, id) {
-  if (!g.alive[id]) return true;
-  if (g.phase === "night") return g.picks[id] !== undefined;
-  if (g.phase === "nominating") return g.nominations[id] !== undefined;
-  if (g.phase === "verdict") {
-    if (g.accused.includes(id)) return true; // the accused don't vote
-    return g.votes[id] !== undefined;
-  }
-  return true;
-}
-
-function resolveNight(g) {
-  const angelId = findByRole(g, "angel");
-  const sheriffId = findByRole(g, "sheriff");
-  // the mafia vote on the mark; most fingers wins, ties break random
-  const killVotes = {};
-  for (const id of allByRole(g, "mafia")) {
-    const t = g.picks[id];
-    if (t !== undefined) killVotes[t] = (killVotes[t] || 0) + 1;
-  }
-  const ranked = shuffle(Object.keys(killVotes)).sort((a, b) => killVotes[b] - killVotes[a]);
-  const target = ranked[0];
-  const saved = !!(angelId && g.alive[angelId] && g.picks[angelId] === target);
-  const victimId = saved ? null : target;
-  if (victimId) g.alive[victimId] = false;
-  g.report = {
-    victimId: victimId || null,
-    victimCard: victimId ? g.cards[victimId] : null,
-    saved,
-  };
-  if (sheriffId && g.alive[sheriffId] && g.picks[sheriffId] !== undefined) {
-    const t = g.picks[sheriffId];
-    g.sheriff = { targetId: t, isMafia: CARDS[g.cards[t]].role === "mafia" };
-  }
-  g.phase = "day";
-}
-
-function closeNominations(g) {
-  const tally = {};
-  for (const picks of Object.values(g.nominations)) {
-    for (const id of picks) {
-      if (g.alive[id]) tally[id] = (tally[id] || 0) + 1;
-    }
-  }
-  const ranked = shuffle(Object.keys(tally)).sort((a, b) => tally[b] - tally[a]);
-  if (ranked.length < 2) return false;
-  g.tally = tally;
-  g.accused = ranked.slice(0, 2);
-  g.phase = "trial";
-  return true;
-}
-
-function resolveVerdict(g) {
-  const counts = { [g.accused[0]]: 0, [g.accused[1]]: 0 };
-  for (const v of Object.values(g.votes)) {
-    if (counts[v] !== undefined) counts[v] += 1;
-  }
-  const [a, b] = g.accused;
-  const hung = counts[a] === counts[b];
-  const condemnedId = hung
-    ? g.accused[Math.floor(Math.random() * 2)]
-    : counts[a] > counts[b] ? a : b;
-  g.alive[condemnedId] = false;
-  const wasMafia = CARDS[g.cards[condemnedId]].role === "mafia";
-  if (wasMafia) g.score.town += 1;
-  else g.score.mafia += 1;
-  g.verdict = { condemnedId, counts, hung, wasMafia, mafiaIds: allByRole(g, "mafia") };
-  g.phase = "reveal";
+function closeVote(g) {
+  const counts = {};
+  for (const t of Object.values(g.votes)) counts[t] = (counts[t] || 0) + 1;
+  const most = Math.max(0, ...Object.values(counts));
+  const top = Object.keys(counts).filter((id) => counts[id] === most);
+  g.tally = { counts, votes: { ...g.votes }, top };
+  g.phase = "results";
 }
 
 // ---------------------------------------------------------------------------
 // state fan-out: one public payload for the room, one private payload
-// per player (their card, their picks, the sheriff's findings)
+// per player (their card, their vote, their partners in crime)
 // ---------------------------------------------------------------------------
 
 function publicState(roomId, r) {
@@ -251,64 +175,40 @@ function publicState(roomId, r) {
     maxPlayers: maxPlayersFor(settings),
     phase: g ? g.phase : "lobby",
     round: g ? g.round : 0,
-    score: g ? g.score : { town: 0, mafia: 0 },
     mafiaCount: g ? allByRole(g, "mafia").length : 0,
-    mayorId: g ? findByRole(g, "mayor") : null, // the mayor's card is public
     members: memberIds.map((id) => ({
       id,
       name: members[id],
       isHost: id === meta.hostId,
       inRound: g ? g.players.includes(id) : false,
-      alive: g ? !!g.alive[id] : true,
-      acted: g ? actedThisPhase(g, id) : false,
+      voted: g && g.phase === "vote" ? g.votes[id] !== undefined : false,
     })),
   };
   if (!g) return out;
 
-  const after = (...phases) => phases.includes(g.phase);
-  if (after("day", "nominating", "trial", "verdict", "reveal") && g.report) {
-    out.report = {
-      victimId: g.report.victimId,
-      victimCard: g.report.victimCard ? cardPublic(g.report.victimCard) : null,
-      saved: g.report.saved,
-    };
-  }
-  if (after("trial", "verdict", "reveal") && g.accused) {
-    out.accused = g.accused.map((id) => ({ id, count: g.tally[id] || 0 }));
-  }
-  if (g.phase === "verdict") {
+  if (g.phase === "vote") {
     out.votesIn = Object.keys(g.votes).length;
-    out.votersTotal = aliveIds(g).filter((id) => !g.accused.includes(id)).length;
+    out.votersTotal = g.players.length;
   }
-  if (g.phase === "reveal" && g.verdict) {
-    out.verdict = {
-      condemnedId: g.verdict.condemnedId,
-      condemnedCard: cardPublic(g.cards[g.verdict.condemnedId]),
-      counts: g.verdict.counts,
-      hung: g.verdict.hung,
-      wasMafia: g.verdict.wasMafia,
-      mafiaIds: g.verdict.mafiaIds,
-    };
-    if (settings.revealAllCards) {
-      out.verdict.allCards = Object.fromEntries(
-        g.players.map((id) => [id, cardPublic(g.cards[id])])
-      );
-    }
+  if ((g.phase === "results" || g.phase === "reveal") && g.tally) {
+    out.tally = g.tally;
+  }
+  if (g.phase === "reveal") {
+    out.allCards = Object.fromEntries(
+      g.players.map((id) => [id, cardPublic(g.cards[id])])
+    );
   }
   return out;
 }
 
-function privateState(g, id) {
-  if (!g || !g.players.includes(id)) return { card: null };
+function privateState(r, id) {
+  const g = r.game;
+  if (!g) return { card: null };
+  if (id === r.meta.hostId) return { card: cardPrivate("KS") };
+  if (!g.players.includes(id)) return { card: null };
   const code = g.cards[id];
-  const card = { ...cardPublic(code), blurb: CARDS[code].blurb || TOWN_BLURB };
-  const out = { card };
-  if (g.picks[id] !== undefined) out.nightPick = g.picks[id];
-  if (g.nominations[id]) out.nominated = g.nominations[id];
+  const out = { card: cardPrivate(code) };
   if (g.votes[id] !== undefined) out.votedFor = g.votes[id];
-  if (CARDS[code].role === "sheriff" && g.sheriff && g.phase !== "night") {
-    out.sheriff = g.sheriff;
-  }
   if (CARDS[code].role === "mafia") {
     const partners = allByRole(g, "mafia").filter((m) => m !== id);
     if (partners.length) out.partners = partners;
@@ -321,7 +221,7 @@ async function broadcast(roomId) {
   if (!r) return;
   io.to(roomId).emit("state", publicState(roomId, r));
   for (const id of Object.keys(r.members)) {
-    io.to(`${roomId}:m:${id}`).emit("private", privateState(r.game, id));
+    io.to(`${roomId}:m:${id}`).emit("private", privateState(r, id));
   }
   touch(roomId).catch(() => {});
 }
@@ -350,17 +250,12 @@ app.post("/api/rooms", async (req, res) => {
 io.on("connection", (socket) => {
   let joined = null; // { roomId, memberId, isHost }
 
-  // leadOnly = the host or the sitting mayor may do it
-  const withRoom = (handler, { hostOnly = false, leadOnly = false } = {}) => async (payload, ack) => {
+  const withRoom = (handler, { hostOnly = false } = {}) => async (payload, ack) => {
     try {
       if (!joined) return ack?.({ error: "not joined" });
       if (hostOnly && !joined.isHost) return ack?.({ error: "host only" });
       const r = await loadRoom(joined.roomId);
       if (!r) return ack?.({ error: "room not found" });
-      if (leadOnly && !joined.isHost) {
-        const isMayor = r.game && findByRole(r.game, "mayor") === joined.memberId;
-        if (!isMayor) return ack?.({ error: "host or mayor only" });
-      }
       const err = await handler(r, payload || {});
       if (err) return ack?.({ error: err });
       ack?.({ ok: true });
@@ -398,101 +293,60 @@ io.on("connection", (socket) => {
     broadcast(roomId);
   });
 
-  // host deals a fresh round. works from the lobby, from the reveal screen
-  // ("next round"), or mid-round as an abandon-and-redeal.
+  // host shuffles up a fresh round. the host is never dealt in - they hold
+  // the Mayor card and run the table. works from anywhere as a redeal.
   socket.on("deal", withRoom(async (r) => {
-    const memberIds = Object.keys(r.members);
+    const playerIds = Object.keys(r.members).filter((id) => id !== r.meta.hostId);
     const min = minPlayersFor(r.settings);
     const max = maxPlayersFor(r.settings);
-    if (memberIds.length < min) return `need at least ${min} players`;
-    if (memberIds.length > max) return `too many players - the deck holds ${max}`;
-    const g = newRound(memberIds, r.settings, r.game);
+    if (playerIds.length < min) return `need at least ${min} players besides the mayor`;
+    if (playerIds.length > max) return `too many players - the deck holds ${max}`;
+    const g = newRound(playerIds, r.settings, r.game);
     await saveGame(joined.roomId, g);
-  }, { leadOnly: true }));
+  }, { hostOnly: true }));
 
-  socket.on("nightPick", withRoom(async (r, { targetId }) => {
+  socket.on("openVote", withRoom(async (r) => {
     const g = r.game;
-    if (!g || g.phase !== "night") return "it isn't night";
+    if (!g || !["table", "results"].includes(g.phase)) return "wrong moment";
+    g.votes = {};
+    g.tally = null;
+    g.phase = "vote";
+    await saveGame(joined.roomId, g);
+  }, { hostOnly: true }));
+
+  socket.on("vote", withRoom(async (r, { targetId }) => {
+    const g = r.game;
+    if (!g || g.phase !== "vote") return "the vote isn't open";
     const me = joined.memberId;
-    if (!g.players.includes(me) || !g.alive[me]) return "you're not in this round";
-    if (!g.players.includes(targetId) || !g.alive[targetId]) return "pick a living player";
-    const myRole = CARDS[g.cards[me]].role;
-    if (targetId === me && myRole !== "angel") return "you can't pick yourself";
-    if (myRole === "mafia" && CARDS[g.cards[targetId]].role === "mafia") {
-      return "you don't shoot your own";
-    }
-    g.picks[me] = targetId;
-    if (aliveIds(g).every((id) => g.picks[id] !== undefined)) resolveNight(g);
+    if (!g.players.includes(me)) return "you're not in this round";
+    if (!g.players.includes(targetId)) return "vote for a dealt player";
+    if (targetId === me) return "you can't vote for yourself";
+    g.votes[me] = targetId;
+    if (g.players.every((id) => g.votes[id] !== undefined)) closeVote(g);
     await saveGame(joined.roomId, g);
   }));
 
-  socket.on("openNominations", withRoom(async (r) => {
+  // host closes the vote early - dead players don't vote, so the mayor
+  // calls it whenever everyone still standing is in
+  socket.on("closeVote", withRoom(async (r) => {
     const g = r.game;
-    if (!g || g.phase !== "day") return "wrong moment";
-    g.phase = "nominating";
+    if (!g || g.phase !== "vote") return "the vote isn't open";
+    if (Object.keys(g.votes).length === 0) return "nobody has voted yet";
+    closeVote(g);
     await saveGame(joined.roomId, g);
-  }, { leadOnly: true }));
+  }, { hostOnly: true }));
 
-  socket.on("nominate", withRoom(async (r, { picks }) => {
-    const g = r.game;
-    if (!g || g.phase !== "nominating") return "nominations aren't open";
-    const me = joined.memberId;
-    if (!g.players.includes(me) || !g.alive[me]) return "you're not in this round";
-    if (!Array.isArray(picks) || picks.length !== 2) return "nominate exactly two players";
-    const [a, b] = picks;
-    if (a === b) return "pick two different players";
-    for (const id of picks) {
-      if (!g.players.includes(id) || !g.alive[id]) return "pick living players";
-      if (id === me) return "you can't nominate yourself";
-    }
-    g.nominations[me] = [a, b];
-    if (aliveIds(g).every((id) => g.nominations[id] !== undefined)) closeNominations(g);
-    await saveGame(joined.roomId, g);
-  }));
-
-  socket.on("callVote", withRoom(async (r) => {
-    const g = r.game;
-    if (!g || g.phase !== "trial") return "wrong moment";
-    g.phase = "verdict";
-    await saveGame(joined.roomId, g);
-  }, { leadOnly: true }));
-
-  socket.on("vote", withRoom(async (r, { accusedId }) => {
-    const g = r.game;
-    if (!g || g.phase !== "verdict") return "the vote isn't open";
-    const me = joined.memberId;
-    if (!g.players.includes(me) || !g.alive[me]) return "you're not in this round";
-    if (g.accused.includes(me)) return "the accused don't vote";
-    if (!g.accused.includes(accusedId)) return "vote for one of the accused";
-    g.votes[me] = accusedId;
-    const voters = aliveIds(g).filter((id) => !g.accused.includes(id));
-    if (voters.every((id) => g.votes[id] !== undefined)) resolveVerdict(g);
-    await saveGame(joined.roomId, g);
-  }));
-
-  // host escape hatch when somebody wandered off mid-phase
-  socket.on("force", withRoom(async (r) => {
+  // flip every card face-up - the round is over
+  socket.on("reveal", withRoom(async (r) => {
     const g = r.game;
     if (!g) return "no round in progress";
-    if (g.phase === "night") {
-      if (!allByRole(g, "mafia").some((id) => g.picks[id] !== undefined)) {
-        return "waiting on the killers - can't skip that";
-      }
-      resolveNight(g);
-    } else if (g.phase === "nominating") {
-      if (!closeNominations(g)) return "need at least two nominated players";
-    } else if (g.phase === "verdict") {
-      if (Object.keys(g.votes).length === 0) return "nobody has voted yet";
-      resolveVerdict(g);
-    } else {
-      return "nothing to skip";
-    }
+    g.phase = "reveal";
     await saveGame(joined.roomId, g);
-  }, { leadOnly: true }));
+  }, { hostOnly: true }));
 
   socket.on("settings", withRoom(async (r, { settings }) => {
     const clean = {};
-    for (const k of ["sheriffEnabled", "angelEnabled", "mayorEnabled", "revealAllCards"]) {
+    for (const k of ["sheriffEnabled", "angelEnabled"]) {
       if (typeof settings?.[k] === "boolean") clean[k] = settings[k];
     }
     const merged = { ...r.settings, ...clean };

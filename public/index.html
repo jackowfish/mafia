@@ -75,9 +75,7 @@
           </div>
           <label class="toggle"><input type="checkbox" id="setSheriff" /><span>deal the Sheriff (K♥) - investigates one player each night</span></label>
           <label class="toggle"><input type="checkbox" id="setAngel" /><span>deal the Angel (A♥) - watches over one player each night</span></label>
-          <label class="toggle"><input type="checkbox" id="setMayor" /><span>seat the Mayor (K♠) - runs the table and reads the prompts. their card is public, so everyone knows they're clean</span></label>
-          <label class="toggle"><input type="checkbox" id="setRevealAll" /><span>flip everyone's card at the end of the round</span></label>
-          <p class="muted small">rule changes take effect at the next deal.</p>
+          <p class="muted small">the host holds the Mayor (K♠) and runs the table. rule changes take effect at the next deal.</p>
           <button class="btn btn-secondary modal-done" data-close>done</button>
         </div>
       </div>
@@ -85,11 +83,6 @@
       <div class="phase-row">
         <span id="phaseLabel" class="pill">gathering</span>
         <span id="waitLabel" class="counts"></span>
-        <span class="score" id="scoreBox" title="rounds won">
-          <span class="score-side">town <b id="scoreTown">0</b></span>
-          <span class="score-sep">·</span>
-          <span class="score-side score-mafia">mafia <b id="scoreMafia">0</b></span>
-        </span>
       </div>
 
       <!-- your card: face-down, hold to peek -->
@@ -117,12 +110,6 @@
 
       <p id="privateNote" class="private-note hidden"></p>
 
-      <!-- the mayor's teleprompter: stage directions only they can see -->
-      <div id="mayorBox" class="mayor-box hidden">
-        <span class="mayor-box-label">🎩 mayor's script</span>
-        <p id="mayorPrompt"></p>
-      </div>
-
       <p id="ghostNote" class="ghost-note hidden"></p>
 
       <!-- ─── waiting for the deal ─── -->
@@ -133,75 +120,49 @@
         </div>
       </div>
 
-      <!-- ─── night ─── -->
-      <div id="stageNight" class="stage hidden">
-        <h2 class="stage-head">night falls on the saloon</h2>
-        <p class="stage-lead" id="nightPrompt"></p>
-        <div id="nightGrid" class="pick-grid" role="listbox" aria-label="choose a player"></div>
+      <!-- ─── cards out, table talk ─── -->
+      <div id="stageTable" class="stage hidden">
+        <h2 class="stage-head">the cards are dealt</h2>
+        <p class="stage-lead" id="tableLead"></p>
+        <div class="host-actions hidden" id="tableActions">
+          <button id="openVoteBtn" class="btn btn-accent btn-big">open the vote</button>
+          <button id="revealBtn" class="link">flip everyone's cards</button>
+          <button id="redealBtn" class="link">shuffle &amp; redeal</button>
+        </div>
+      </div>
+
+      <!-- ─── the vote ─── -->
+      <div id="stageVote" class="stage hidden">
+        <h2 class="stage-head">the town votes</h2>
+        <p class="stage-lead" id="votePrompt"></p>
+        <div id="voteGrid" class="pick-grid" role="listbox" aria-label="vote for a player"></div>
         <div class="row center">
-          <button id="nightLock" class="btn btn-primary btn-big" disabled>lock it in</button>
-        </div>
-        <p id="nightDone" class="done-note hidden">your move is made. wait for sunrise.</p>
-      </div>
-
-      <!-- ─── day report ─── -->
-      <div id="stageDay" class="stage hidden">
-        <h2 class="stage-head">sunrise</h2>
-        <div class="report" id="reportBox">
-          <p class="report-text" id="reportText"></p>
-        </div>
-        <p class="stage-lead">talk it over. when the table's ready, the host opens nominations.</p>
-        <div class="host-actions hidden" id="openNomsRow">
-          <button id="openNomsBtn" class="btn btn-accent btn-big">open nominations</button>
-        </div>
-      </div>
-
-      <!-- ─── nominations ─── -->
-      <div id="stageNoms" class="stage hidden">
-        <h2 class="stage-head">point two fingers</h2>
-        <p class="stage-lead">nominate <b>two</b> players you don't trust. the two most-accused stand trial.</p>
-        <div id="nomGrid" class="pick-grid" role="listbox" aria-label="nominate two players"></div>
-        <div class="row center">
-          <button id="nomLock" class="btn btn-primary btn-big" disabled>lock them in</button>
-        </div>
-        <p id="nomDone" class="done-note hidden">your accusations are in.</p>
-      </div>
-
-      <!-- ─── trial ─── -->
-      <div id="stageTrial" class="stage hidden">
-        <h2 class="stage-head">the accused stand</h2>
-        <p class="stage-lead" id="trialLead">each gives their speech. then the town decides.</p>
-        <div id="posters" class="posters"></div>
-        <div class="host-actions hidden" id="callVoteRow">
-          <button id="callVoteBtn" class="btn btn-accent btn-big">call the vote</button>
+          <button id="voteLock" class="btn btn-primary btn-big" disabled>cast your vote</button>
         </div>
         <p id="voteDone" class="done-note hidden">your vote is cast.</p>
+        <div class="host-actions hidden" id="closeVoteRow">
+          <button id="closeVoteBtn" class="btn btn-accent btn-big">close the vote</button>
+        </div>
       </div>
 
-      <!-- ─── reveal ─── -->
-      <div id="stageReveal" class="stage hidden">
-        <h2 class="stage-head" id="revealHead"></h2>
-        <div class="reveal-flip">
-          <div id="revealCard" class="playing-card small flipped">
-            <span class="card-inner">
-              <span class="card-back"><img src="/cards/back.svg" alt="" draggable="false" /></span>
-              <span class="card-face">
-                <img id="rvImg" src="/cards/back.svg" alt="" draggable="false" />
-                <span class="card-plate" id="rvTitle"></span>
-              </span>
-            </span>
-          </div>
+      <!-- ─── the tally ─── -->
+      <div id="stageResults" class="stage hidden">
+        <h2 class="stage-head">the tally</h2>
+        <p class="stage-lead" id="resultsLead"></p>
+        <div id="tallyBox" class="tally"></div>
+        <div class="host-actions hidden" id="resultsActions">
+          <button id="openVoteBtn2" class="btn btn-accent btn-big">open another vote</button>
+          <button id="revealBtn2" class="link">flip everyone's cards</button>
         </div>
-        <p class="reveal-text" id="revealText"></p>
+      </div>
+
+      <!-- ─── judgment: every card face-up ─── -->
+      <div id="stageReveal" class="stage hidden">
+        <h2 class="stage-head">every card on the table</h2>
         <div id="allCards" class="all-cards"></div>
         <div class="host-actions hidden" id="nextRow">
           <button id="nextBtn" class="btn btn-accent btn-big">shuffle up - next round</button>
         </div>
-      </div>
-
-      <!-- host escape hatch -->
-      <div class="row center hidden" id="forceRow">
-        <button id="forceBtn" class="link">⏭ move it along (skip stragglers)</button>
       </div>
 
       <!-- who's at the table -->

@@ -1,31 +1,30 @@
 # mafia
 
-Multiplayer mafia for one saloon table. Everyone gets a face card, the mafia kills by night, the town nominates two suspects, they give their speeches, and the table votes one of them to the gallows.
+A card dealer and ballot box for in-person mafia. The app shuffles the deck, hands everyone a secret card, and runs the vote - everything else (nights, kills, saves, speeches) happens out loud at the table. The game runs until the mafia are the last ones standing or they've all been hanged.
 
 ## The deck
 
-Every card is a face card from a real deck (SVGs from [me.uk/cards](https://www.me.uk/cards/), CC0, tinted to match the app):
+Real playing cards (SVGs from [me.uk/cards](https://www.me.uk/cards/), CC0, tinted to match the app). The important roles are always face cards; townsfolk get number cards:
 
-| card | position | night action |
-| --- | --- | --- |
-| A♠ A♣ A♦ | The Mafia | vote on somebody to kill (most fingers wins) |
-| A♥ | The Angel | picks somebody to protect |
-| K♥ | The Sheriff | investigates one player - learns if they're the mafia |
-| K♠ | The Mayor (optional) | runs the table; their card is public so everyone knows they're clean |
-| everything else | Townsperson | points at somebody (decoy, so every screen looks the same) |
+| card | position |
+| --- | --- |
+| A♠ A♣ A♦ | The Mafia - they know each other |
+| A♥ | The Angel |
+| K♥ | The Sheriff |
+| K♠ | The Mayor - always the host, never shuffled in |
+| 2-10, any suit | Townsperson |
 
-The black aces come out one at a time as the table grows: 1 mafia at 4-8 players, 2 at 9-12, 3 at 13+. The mafia know each other and can't shoot their own. The Mayor gets a private script of stage directions (what to read at sunrise, when to open nominations, whose speeches to call) plus the phase controls, and still plays - nominates, votes, and can be shot.
+The black aces come out one at a time as the table grows: 1 mafia at 4-8 players, 2 at 9-12, 3 at 13+. The host holds the Mayor card, runs the table, and controls the deal and the votes - they're never dealt a playing role.
 
 ## A round
 
-1. Host deals. Everyone gets a card - hold it to peek.
-2. Night: every living player secretly picks a player. Kills, saves, and investigations resolve together.
-3. Sunrise: the body (or the save) is announced. Talk it out.
-4. Nominations: everyone points two fingers. The two most-accused stand trial.
-5. Speeches, then the vote. The accused don't vote. Ties go to a coin.
-6. The condemned card flips. Mafia hanged → point town. Wrong hunch → point mafia. Next round re-deals.
+1. Host deals. Every player gets a card - hold it to peek. Mafia see their partners on screen.
+2. The mayor narrates the nights and days out loud, old-school.
+3. When it's time to hang somebody, the mayor opens the vote. Everyone points a finger on their own screen.
+4. The tally shows who got how many votes and from whom. The mayor can close a vote early (the dead don't vote) or open another.
+5. When the game's decided, the mayor flips every card face-up, then shuffles up the next round.
 
-4-16 players. Rooms expire after 24h idle.
+4+ players plus the mayor. Rooms expire after 24h idle.
 
 ## Run
 
@@ -51,5 +50,3 @@ Point `REDIS_URL` at a shared Redis (any non-localhost host) and run as many rep
 
 - deal the Sheriff (K♥)
 - deal the Angel (A♥)
-- seat the Mayor (K♠)
-- flip everyone's card at the end of the round

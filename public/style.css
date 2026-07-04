@@ -241,8 +241,9 @@ input:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px
   color: var(--color-text);
 }
 .pill[data-phase="table"] { background: oklch(35% 0.07 75); border-color: var(--color-lamp-dim); color: var(--color-paper); }
-.pill[data-phase="vote"], .pill[data-phase="results"] { background: var(--color-blood); border-color: var(--color-blood-bright); color: var(--color-paper); }
-.pill[data-phase="reveal"] { background: var(--color-lamp); color: var(--color-night); border-color: var(--color-lamp-dim); }
+.pill[data-phase="nominating"] { background: oklch(24% 0.05 280); border-color: oklch(38% 0.06 280); }
+.pill[data-phase="trial"], .pill[data-phase="verdict"] { background: var(--color-blood); border-color: var(--color-blood-bright); color: var(--color-paper); }
+.pill[data-phase="results"], .pill[data-phase="reveal"] { background: var(--color-lamp); color: var(--color-night); border-color: var(--color-lamp-dim); }
 
 .counts { color: var(--color-muted); font-family: var(--font-label); font-size: var(--text-xs); letter-spacing: 0.08em; }
 
@@ -396,6 +397,17 @@ input:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px
   max-width: 60ch;
 }
 
+.ledger {
+  text-align: center;
+  margin-bottom: var(--space-lg);
+}
+.ledger-cards {
+  margin-top: var(--space-md);
+  padding: var(--space-md);
+  border: 1px dashed var(--color-edge);
+  border-radius: var(--radius-sm);
+}
+
 .ghost-note {
   text-align: center;
   color: var(--color-muted);
@@ -436,7 +448,60 @@ input:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px
 .pick-tile.selected:disabled { opacity: 1; }
 .pick-name { overflow-wrap: anywhere; }
 
-/* ── the tally ─────────────────────────────────────────────────────────── */
+/* ── wanted posters ────────────────────────────────────────────────────── */
+
+.posters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
+  gap: var(--space-lg);
+  max-width: 560px;
+  margin: 0 auto;
+}
+
+.poster {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  border: 1px solid var(--color-paper-edge);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-card);
+  padding: var(--space-lg) var(--space-md);
+  display: flex; flex-direction: column; align-items: center;
+  gap: var(--space-xs);
+  text-align: center;
+}
+.poster:first-child { transform: rotate(-1.2deg); }
+.poster:last-child { transform: rotate(1deg); }
+
+.poster-wanted {
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  letter-spacing: 0.22em;
+  color: var(--color-ink-red);
+  border-top: 2px solid var(--color-ink);
+  border-bottom: 2px solid var(--color-ink);
+  padding: var(--space-2xs) var(--space-sm);
+}
+.poster-name {
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  overflow-wrap: anywhere;
+  min-width: 0;
+  line-height: 1.15;
+}
+.poster-sub {
+  font-family: var(--font-label);
+  font-size: var(--text-xs);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.poster-vote { margin-top: var(--space-sm); width: 100%; max-width: 220px; }
+.poster-vote.voted { background: var(--color-ink); color: var(--color-paper); }
+
+/* ── the condemned & the tally ─────────────────────────────────────────── */
+
+.condemned { display: flex; justify-content: center; margin-bottom: var(--space-lg); }
+.condemned .mini-card { max-width: 132px; }
+.condemned .mini-card img { max-width: 132px; }
 
 .tally {
   background: var(--color-paper);

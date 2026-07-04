@@ -110,6 +110,12 @@
 
       <p id="privateNote" class="private-note hidden"></p>
 
+      <!-- the mayor's ledger: every hand, their eyes only -->
+      <div id="ledgerBox" class="ledger hidden">
+        <button id="ledgerToggle" class="link">🎩 mayor's ledger - tap to peek</button>
+        <div id="ledgerCards" class="all-cards ledger-cards hidden"></div>
+      </div>
+
       <p id="ghostNote" class="ghost-note hidden"></p>
 
       <!-- ─── waiting for the deal ─── -->
@@ -125,19 +131,33 @@
         <h2 class="stage-head">the cards are dealt</h2>
         <p class="stage-lead" id="tableLead"></p>
         <div class="host-actions hidden" id="tableActions">
-          <button id="openVoteBtn" class="btn btn-accent btn-big">open the vote</button>
+          <button id="openNomsBtn" class="btn btn-accent btn-big">open nominations</button>
           <button id="revealBtn" class="link">flip everyone's cards</button>
           <button id="redealBtn" class="link">shuffle &amp; redeal</button>
         </div>
       </div>
 
-      <!-- ─── the vote ─── -->
-      <div id="stageVote" class="stage hidden">
-        <h2 class="stage-head">the town votes</h2>
-        <p class="stage-lead" id="votePrompt"></p>
-        <div id="voteGrid" class="pick-grid" role="listbox" aria-label="vote for a player"></div>
+      <!-- ─── nominations ─── -->
+      <div id="stageNoms" class="stage hidden">
+        <h2 class="stage-head">point two fingers</h2>
+        <p class="stage-lead" id="nomPrompt">nominate <b>two</b> players you don't trust. the two most-accused stand trial.</p>
+        <div id="nomGrid" class="pick-grid" role="listbox" aria-label="nominate two players"></div>
         <div class="row center">
-          <button id="voteLock" class="btn btn-primary btn-big" disabled>cast your vote</button>
+          <button id="nomLock" class="btn btn-primary btn-big" disabled>lock them in</button>
+        </div>
+        <p id="nomDone" class="done-note hidden">your accusations are in.</p>
+        <div class="host-actions hidden" id="closeNomsRow">
+          <button id="closeNomsBtn" class="btn btn-accent btn-big">close nominations</button>
+        </div>
+      </div>
+
+      <!-- ─── trial & vote ─── -->
+      <div id="stageTrial" class="stage hidden">
+        <h2 class="stage-head">the accused stand</h2>
+        <p class="stage-lead" id="trialLead"></p>
+        <div id="posters" class="posters"></div>
+        <div class="host-actions hidden" id="callVoteRow">
+          <button id="callVoteBtn" class="btn btn-accent btn-big">call the vote</button>
         </div>
         <p id="voteDone" class="done-note hidden">your vote is cast.</p>
         <div class="host-actions hidden" id="closeVoteRow">
@@ -145,13 +165,20 @@
         </div>
       </div>
 
-      <!-- ─── the tally ─── -->
+      <!-- ─── the verdict ─── -->
       <div id="stageResults" class="stage hidden">
-        <h2 class="stage-head">the tally</h2>
+        <h2 class="stage-head" id="resultsHead">judgment</h2>
         <p class="stage-lead" id="resultsLead"></p>
+        <div id="condemnedBox" class="condemned hidden">
+          <div class="mini-card">
+            <img id="condemnedImg" src="/cards/back.svg" alt="" draggable="false" />
+            <span class="mini-name" id="condemnedName"></span>
+            <span class="mini-title" id="condemnedTitle"></span>
+          </div>
+        </div>
         <div id="tallyBox" class="tally"></div>
         <div class="host-actions hidden" id="resultsActions">
-          <button id="openVoteBtn2" class="btn btn-accent btn-big">open another vote</button>
+          <button id="openNomsBtn2" class="btn btn-accent btn-big">open nominations - next day</button>
           <button id="revealBtn2" class="link">flip everyone's cards</button>
         </div>
       </div>

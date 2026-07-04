@@ -14,10 +14,10 @@ const store = {
 let socket = null;
 let me = { roomId: null, memberId: null, isHost: false, name: "" };
 let latest = null;   // public room state
-let priv = null;     // my private state (card, my vote, partners)
+let priv = null;     // my private state (card, picks, partners; every hand for the mayor)
 
 // local UI selections, reset when the phase turns over
-let voteSel = null;
+let nomSel = [];
 let renderedPhase = null;
 let renderedRound = null;
 
@@ -140,14 +140,16 @@ function escapeHtml(s) {
 const PHASE_LABELS = {
   lobby: "gathering",
   table: "cards out",
-  vote: "the vote",
-  results: "the tally",
-  reveal: "judgment",
+  nominating: "nominations",
+  trial: "the trial",
+  verdict: "the vote",
+  results: "judgment",
+  reveal: "cards up",
 };
 
 // ── render ─────────────────────────────────────────────────────────────────
 
-const STAGES = ["stageLobby", "stageTable", "stageVote", "stageResults", "stageReveal"];
+const STAGES = ["stageLobby", "stageTable", "stageNoms", "stageTrial", "stageResults", "stageReveal"];
 
 function render() {
   if (!latest) return;
@@ -162,7 +164,7 @@ function render() {
 
   // reset local selections when the phase or round turns over
   if (phase !== renderedPhase || s.round !== renderedRound) {
-    voteSel = null;
+    nomSel = [];
     renderedPhase = phase;
     renderedRound = s.round;
   }
@@ -173,7 +175,8 @@ function render() {
   const waitBits = [];
   if (s.round > 0) waitBits.push(`round ${s.round}`);
   if (s.mafiaCount > 0) waitBits.push(`${s.mafiaCount} mafia dealt`);
-  if (phase === "vote") waitBits.push(`${s.votesIn}/${s.votersTotal} votes in`);
+  if (phase === "nominating") waitBits.push(`${s.nomsIn}/${s.nomsTotal} accusations in`);
+  if (phase === "verdict") waitBits.push(`${s.votesIn}/${s.votersTotal} votes in`);
   $("waitLabel").textContent = waitBits.join(" · ");
 
   // settings
@@ -185,7 +188,9 @@ function render() {
   const stage = {
     lobby: "stageLobby",
     table: "stageTable",
-    vote: "stageVote",
+    nominating: "stageNoms",
+    trial: "stageTrial",
+    verdict: "stageTrial",
     results: "stageResults",
     reveal: "stageReveal",
   }[phase];
@@ -207,6 +212,14 @@ function render() {
   $("privateNote").textContent = notes.join(" ");
   $("privateNote").classList.toggle("hidden", notes.length === 0);
 
+  // the mayor's ledger: every hand, for their eyes only
+  if (me.isHost && priv?.allCards && phase !== "lobby") {
+    renderLedger(priv.allCards);
+    show($("ledgerBox"));
+  } else {
+    hide($("ledgerBox"));
+  }
+
   let ghost = "";
   if (!inRound && !me.isHost && phase !== "lobby") {
     ghost = "you're watching this round from the bar. you'll be dealt in at the next shuffle.";
@@ -217,7 +230,8 @@ function render() {
   // per-stage rendering
   if (phase === "lobby") renderLobbyStage(s);
   if (phase === "table") renderTable(s);
-  if (phase === "vote") renderVote(s, inRound);
+  if (phase === "nominating") renderNoms(s, inRound);
+  if (phase === "trial" || phase === "verdict") renderTrial(s, inRound, phase);
   if (phase === "results") renderResults(s);
   if (phase === "reveal") renderReveal(s);
 
@@ -239,7 +253,7 @@ function renderLobbyStage(s) {
 
 function renderTable(s) {
   $("tableLead").textContent = me.isHost
-    ? "cards are out. run the nights out loud and open a vote each day - the game runs until the mafia all hang, or nobody's left to stop them. flip the cards when it's decided."
+    ? "cards are out. run the nights out loud - when the town wants blood, open nominations. the game runs until the mafia all hang, or nobody's left to stop them."
     : "cards are out. keep yours close - the mayor runs the night from here.";
   $("tableActions").classList.toggle("hidden", !me.isHost);
 }
@@ -254,67 +268,106 @@ function pickTile(m, selected, disabled) {
   return b;
 }
 
-function renderVote(s, inRound) {
-  const grid = $("voteGrid");
+function renderNoms(s, inRound) {
+  const grid = $("nomGrid");
   grid.innerHTML = "";
-  const locked = priv?.votedFor !== undefined;
+  const locked = !!priv?.nominated;
 
-  if (me.isHost) {
-    $("votePrompt").textContent = "the town votes. close it when everyone still standing is in.";
-    hide($("voteLock")); hide($("voteDone"));
-    show($("closeVoteRow"));
-    return;
-  }
-  hide($("closeVoteRow"));
+  $("closeNomsRow").classList.toggle("hidden", !me.isHost);
+  if (!inRound) { hide($("nomLock")); hide($("nomDone")); return; }
 
-  if (!inRound) { hide($("voteLock")); hide($("voteDone")); $("votePrompt").textContent = ""; return; }
-
-  $("votePrompt").textContent = "point your finger. who hangs?";
+  const chosen = locked ? priv.nominated : nomSel;
   for (const m of s.members) {
     if (!m.inRound || m.id === me.memberId) continue;
-    const isSel = locked ? priv.votedFor === m.id : voteSel === m.id;
+    const isSel = chosen.includes(m.id);
     const tile = pickTile(m, isSel, locked);
-    tile.addEventListener("click", () => { voteSel = m.id; render(); });
+    tile.addEventListener("click", () => {
+      if (nomSel.includes(m.id)) nomSel = nomSel.filter((x) => x !== m.id);
+      else if (nomSel.length < 2) nomSel = [...nomSel, m.id];
+      else nomSel = [nomSel[1], m.id];
+      render();
+    });
     grid.appendChild(tile);
   }
-  $("voteLock").classList.toggle("hidden", locked);
-  $("voteLock").disabled = !voteSel;
-  $("voteDone").classList.toggle("hidden", !locked);
+  $("nomLock").classList.toggle("hidden", locked);
+  $("nomLock").disabled = nomSel.length !== 2;
+  $("nomDone").classList.toggle("hidden", !locked);
 }
 
-function renderTally(s, boxId) {
-  const box = $(boxId);
+function renderTrial(s, inRound, phase) {
+  const voting = phase === "verdict";
+  const box = $("posters");
   box.innerHTML = "";
-  const t = s.tally;
-  if (!t) return;
-  const voters = {};
-  for (const [voter, target] of Object.entries(t.votes)) {
-    (voters[target] = voters[target] || []).push(voter);
-  }
-  const ranked = Object.keys(t.counts).sort((a, b) => t.counts[b] - t.counts[a]);
-  if (ranked.length === 0) {
-    box.innerHTML = `<p class="stage-lead">nobody voted. a timid town.</p>`;
-    return;
-  }
-  for (const id of ranked) {
-    const row = document.createElement("div");
-    row.className = "tally-row" + (t.top.includes(id) ? " top" : "");
-    row.innerHTML = `
-      <span class="tally-name">${escapeHtml(nameOf(id))}</span>
-      <span class="tally-count">${t.counts[id]} vote${t.counts[id] === 1 ? "" : "s"}</span>
-      <span class="tally-voters">${(voters[id] || []).map((v) => escapeHtml(nameOf(v))).join(", ")}</span>
+  const iAmAccused = (s.accused || []).some((a) => a.id === me.memberId);
+  const canVote = voting && inRound && !me.isHost && !iAmAccused;
+
+  for (const a of s.accused || []) {
+    const div = document.createElement("div");
+    div.className = "poster";
+    const votedThis = priv?.votedFor === a.id;
+    div.innerHTML = `
+      <span class="poster-wanted">WANTED</span>
+      <span class="poster-name">${escapeHtml(nameOf(a.id))}</span>
+      <span class="poster-sub">${a.count} finger${a.count === 1 ? "" : "s"} pointed</span>
     `;
-    box.appendChild(row);
+    if (voting && !me.isHost) {
+      const btn = document.createElement("button");
+      btn.className = "btn btn-accent poster-vote" + (votedThis ? " voted" : "");
+      btn.textContent = votedThis ? "your vote ✓" : "guilty";
+      btn.disabled = !canVote || priv?.votedFor !== undefined;
+      btn.addEventListener("click", () => {
+        socket.emit("vote", { accusedId: a.id }, (r) => { if (r?.error) alert(r.error); });
+      });
+      div.appendChild(btn);
+    }
+    box.appendChild(div);
   }
+
+  $("trialLead").textContent = voting
+    ? (iAmAccused ? "the town votes on your fate. sit tight." : me.isHost ? "the vote is open. chase the stragglers, then close it." : "pick who hangs. choose well.")
+    : "each gives their speech. then the mayor calls the vote.";
+  $("callVoteRow").classList.toggle("hidden", !(me.isHost && !voting));
+  $("closeVoteRow").classList.toggle("hidden", !(me.isHost && voting));
+  $("voteDone").classList.toggle("hidden", !(voting && priv?.votedFor !== undefined));
 }
 
 function renderResults(s) {
-  renderTally(s, "tallyBox");
-  const t = s.tally;
-  let lead = "";
-  if (t && t.top.length === 1) lead = `the town points at ${nameOf(t.top[0])}.`;
-  else if (t && t.top.length > 1) lead = `dead heat: ${t.top.map(nameOf).join(" and ")}. mayor's call.`;
-  $("resultsLead").textContent = lead;
+  const v = s.verdict;
+  if (!v) return;
+  const [a, b] = (s.accused || []).map((x) => x.id);
+
+  if (v.hung) {
+    $("resultsHead").textContent = "the jury hangs.";
+    $("resultsLead").textContent = "dead heat. the mayor makes the call.";
+    hide($("condemnedBox"));
+  } else {
+    $("resultsHead").textContent = "the town has spoken.";
+    $("resultsLead").textContent = `${nameOf(v.condemnedId)} swings as ${v.condemnedCard.title} (${v.condemnedCard.rank}${v.condemnedCard.suit}).`;
+    $("condemnedImg").src = `/cards/${v.condemnedCard.code}.svg`;
+    $("condemnedName").textContent = nameOf(v.condemnedId);
+    $("condemnedTitle").textContent = v.condemnedCard.title;
+    $("condemnedBox").querySelector(".mini-card").classList.toggle("mafia", v.condemnedCard.role === "mafia");
+    show($("condemnedBox"));
+  }
+
+  // the ballot, out in the open
+  const box = $("tallyBox");
+  box.innerHTML = "";
+  const voters = {};
+  for (const [voter, target] of Object.entries(v.votes)) {
+    (voters[target] = voters[target] || []).push(voter);
+  }
+  for (const id of [a, b].sort((x, y) => (v.counts[y] || 0) - (v.counts[x] || 0))) {
+    const row = document.createElement("div");
+    row.className = "tally-row" + (!v.hung && v.condemnedId === id ? " top" : "");
+    row.innerHTML = `
+      <span class="tally-name">${escapeHtml(nameOf(id))}</span>
+      <span class="tally-count">${v.counts[id] || 0} vote${(v.counts[id] || 0) === 1 ? "" : "s"}</span>
+      <span class="tally-voters">${(voters[id] || []).map((x) => escapeHtml(nameOf(x))).join(", ")}</span>
+    `;
+    box.appendChild(row);
+  }
+
   $("resultsActions").classList.toggle("hidden", !me.isHost);
 }
 
@@ -322,16 +375,28 @@ function renderReveal(s) {
   const all = $("allCards");
   all.innerHTML = "";
   for (const [id, card] of Object.entries(s.allCards || {})) {
-    const div = document.createElement("div");
-    div.className = "mini-card" + (card.role === "mafia" ? " mafia" : "");
-    div.innerHTML = `
-      <img src="/cards/${card.code}.svg" alt="${card.rank}${card.suit}" draggable="false" />
-      <span class="mini-name">${escapeHtml(nameOf(id))}</span>
-      <span class="mini-title">${escapeHtml(card.title)}</span>
-    `;
-    all.appendChild(div);
+    all.appendChild(miniCard(id, card));
   }
   $("nextRow").classList.toggle("hidden", !me.isHost);
+}
+
+function miniCard(id, card) {
+  const div = document.createElement("div");
+  div.className = "mini-card" + (card.role === "mafia" ? " mafia" : "");
+  div.innerHTML = `
+    <img src="/cards/${card.code}.svg" alt="${card.rank}${card.suit}" draggable="false" />
+    <span class="mini-name">${escapeHtml(nameOf(id))}</span>
+    <span class="mini-title">${escapeHtml(card.title)}</span>
+  `;
+  return div;
+}
+
+function renderLedger(allCards) {
+  const box = $("ledgerCards");
+  box.innerHTML = "";
+  for (const [id, card] of Object.entries(allCards)) {
+    box.appendChild(miniCard(id, card));
+  }
 }
 
 function paintCard(imgId, titleId, card) {
@@ -354,15 +419,16 @@ function runShuffle() {
 function renderMembers(s, phase) {
   const ul = $("members");
   ul.innerHTML = "";
+  const showStatus = ["nominating", "verdict"].includes(phase);
   for (const m of s.members) {
     const li = document.createElement("li");
-    if (phase === "vote" && m.voted && m.inRound) li.classList.add("acted");
+    if (showStatus && m.acted && m.inRound) li.classList.add("acted");
     const tags = [];
     if (m.id === me.memberId) tags.push(`<span class="you-tag">you</span>`);
     if (m.isHost) tags.push(`<span class="mayor-tag">🎩 mayor</span>`);
     let status = "";
     if (phase !== "lobby" && !m.inRound && !m.isHost) status = "at the bar";
-    else if (phase === "vote" && m.inRound) status = m.voted ? "voted ✓" : "deciding…";
+    else if (showStatus && m.inRound) status = m.acted ? "done ✓" : "deciding…";
     li.innerHTML = `
       <div class="m-name">${escapeHtml(m.name)} ${tags.join(" ")}</div>
       <div class="m-status">${status}</div>
@@ -392,15 +458,17 @@ const emitSimple = (event) => (payload = {}) =>
 $("dealBtn").addEventListener("click", () => emitSimple("deal")());
 $("redealBtn").addEventListener("click", () => emitSimple("deal")());
 $("nextBtn").addEventListener("click", () => emitSimple("deal")());
-$("openVoteBtn").addEventListener("click", () => emitSimple("openVote")());
-$("openVoteBtn2").addEventListener("click", () => emitSimple("openVote")());
+$("openNomsBtn").addEventListener("click", () => emitSimple("openNominations")());
+$("openNomsBtn2").addEventListener("click", () => emitSimple("openNominations")());
+$("closeNomsBtn").addEventListener("click", () => emitSimple("closeNominations")());
+$("callVoteBtn").addEventListener("click", () => emitSimple("callVote")());
 $("closeVoteBtn").addEventListener("click", () => emitSimple("closeVote")());
 $("revealBtn").addEventListener("click", () => emitSimple("reveal")());
 $("revealBtn2").addEventListener("click", () => emitSimple("reveal")());
 
-$("voteLock").addEventListener("click", () => {
-  if (!voteSel) return;
-  emitSimple("vote")({ targetId: voteSel });
+$("nomLock").addEventListener("click", () => {
+  if (nomSel.length !== 2) return;
+  emitSimple("nominate")({ picks: nomSel });
 });
 
 // hold-to-peek on your card - the role text only shows while held,
@@ -421,6 +489,13 @@ myCard.addEventListener("keydown", (e) => {
 });
 myCard.addEventListener("keyup", (e) => {
   if (e.key === " " || e.key === "Enter") peek(false);
+});
+
+// the ledger folds shut so a player glancing at the mayor's phone sees nothing
+$("ledgerToggle").addEventListener("click", () => {
+  $("ledgerCards").classList.toggle("hidden");
+  const open = !$("ledgerCards").classList.contains("hidden");
+  $("ledgerToggle").textContent = open ? "🎩 mayor's ledger - tap to hide" : "🎩 mayor's ledger - tap to peek";
 });
 
 // settings modal

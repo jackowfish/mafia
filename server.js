@@ -140,23 +140,43 @@ function newRound(playerIds, settings, prev) {
   order.forEach((id, i) => (cards[id] = dealt[i]));
   return {
     round: prev ? prev.round + 1 : 1,
-    phase: "table",   // table -> vote -> results -> (vote again | reveal)
+    phase: "table",     // table -> nominating -> trial -> verdict -> results -> (nominating again | reveal)
     players: order,
     cards,
-    votes: {},        // memberId -> targetId
-    tally: null,      // { counts, votes, top } once a vote closes
+    nominations: {},    // memberId -> [a, b]
+    tally: null,        // nomineeId -> nomination count
+    accused: null,      // [idA, idB] - the two most-accused
+    votes: {},          // memberId -> accusedId
+    verdict: null,      // { counts, votes, hung, condemnedId }
   };
 }
 
 const allByRole = (g, role) =>
   g.players.filter((id) => CARDS[g.cards[id]].role === role);
 
+function closeNominations(g) {
+  const tally = {};
+  for (const picks of Object.values(g.nominations)) {
+    for (const id of picks) tally[id] = (tally[id] || 0) + 1;
+  }
+  const ranked = shuffle(Object.keys(tally)).sort((a, b) => tally[b] - tally[a]);
+  if (ranked.length < 2) return false;
+  g.tally = tally;
+  g.accused = ranked.slice(0, 2);
+  g.phase = "trial";
+  return true;
+}
+
+// ties hang the jury - the mayor makes the call at the table
 function closeVote(g) {
-  const counts = {};
-  for (const t of Object.values(g.votes)) counts[t] = (counts[t] || 0) + 1;
-  const most = Math.max(0, ...Object.values(counts));
-  const top = Object.keys(counts).filter((id) => counts[id] === most);
-  g.tally = { counts, votes: { ...g.votes }, top };
+  const [a, b] = g.accused;
+  const counts = { [a]: 0, [b]: 0 };
+  for (const v of Object.values(g.votes)) {
+    if (counts[v] !== undefined) counts[v] += 1;
+  }
+  const hung = counts[a] === counts[b];
+  const condemnedId = hung ? null : counts[a] > counts[b] ? a : b;
+  g.verdict = { counts, votes: { ...g.votes }, hung, condemnedId };
   g.phase = "results";
 }
 
@@ -164,6 +184,15 @@ function closeVote(g) {
 // state fan-out: one public payload for the room, one private payload
 // per player (their card, their vote, their partners in crime)
 // ---------------------------------------------------------------------------
+
+function actedThisPhase(g, id) {
+  if (g.phase === "nominating") return g.nominations[id] !== undefined;
+  if (g.phase === "verdict") {
+    if (g.accused.includes(id)) return true; // the accused don't vote
+    return g.votes[id] !== undefined;
+  }
+  return false;
+}
 
 function publicState(roomId, r) {
   const { meta, members, game: g, settings } = r;
@@ -181,17 +210,27 @@ function publicState(roomId, r) {
       name: members[id],
       isHost: id === meta.hostId,
       inRound: g ? g.players.includes(id) : false,
-      voted: g && g.phase === "vote" ? g.votes[id] !== undefined : false,
+      acted: g && g.players.includes(id) ? actedThisPhase(g, id) : false,
     })),
   };
   if (!g) return out;
 
-  if (g.phase === "vote") {
-    out.votesIn = Object.keys(g.votes).length;
-    out.votersTotal = g.players.length;
+  if (g.phase === "nominating") {
+    out.nomsIn = Object.keys(g.nominations).length;
+    out.nomsTotal = g.players.length;
   }
-  if ((g.phase === "results" || g.phase === "reveal") && g.tally) {
-    out.tally = g.tally;
+  if (["trial", "verdict", "results"].includes(g.phase) && g.accused) {
+    out.accused = g.accused.map((id) => ({ id, count: g.tally[id] || 0 }));
+  }
+  if (g.phase === "verdict") {
+    out.votesIn = Object.keys(g.votes).length;
+    out.votersTotal = g.players.filter((id) => !g.accused.includes(id)).length;
+  }
+  if (g.phase === "results" && g.verdict) {
+    out.verdict = {
+      ...g.verdict,
+      condemnedCard: g.verdict.condemnedId ? cardPublic(g.cards[g.verdict.condemnedId]) : null,
+    };
   }
   if (g.phase === "reveal") {
     out.allCards = Object.fromEntries(
@@ -204,10 +243,17 @@ function publicState(roomId, r) {
 function privateState(r, id) {
   const g = r.game;
   if (!g) return { card: null };
-  if (id === r.meta.hostId) return { card: cardPrivate("KS") };
+  // the mayor narrates the nights, so they see every hand
+  if (id === r.meta.hostId) {
+    return {
+      card: cardPrivate("KS"),
+      allCards: Object.fromEntries(g.players.map((p) => [p, cardPublic(g.cards[p])])),
+    };
+  }
   if (!g.players.includes(id)) return { card: null };
   const code = g.cards[id];
   const out = { card: cardPrivate(code) };
+  if (g.nominations[id]) out.nominated = g.nominations[id];
   if (g.votes[id] !== undefined) out.votedFor = g.votes[id];
   if (CARDS[code].role === "mafia") {
     const partners = allByRole(g, "mafia").filter((m) => m !== id);
@@ -305,24 +351,60 @@ io.on("connection", (socket) => {
     await saveGame(joined.roomId, g);
   }, { hostOnly: true }));
 
-  socket.on("openVote", withRoom(async (r) => {
+  socket.on("openNominations", withRoom(async (r) => {
     const g = r.game;
     if (!g || !["table", "results"].includes(g.phase)) return "wrong moment";
-    g.votes = {};
+    g.nominations = {};
     g.tally = null;
-    g.phase = "vote";
+    g.accused = null;
+    g.votes = {};
+    g.verdict = null;
+    g.phase = "nominating";
     await saveGame(joined.roomId, g);
   }, { hostOnly: true }));
 
-  socket.on("vote", withRoom(async (r, { targetId }) => {
+  socket.on("nominate", withRoom(async (r, { picks }) => {
     const g = r.game;
-    if (!g || g.phase !== "vote") return "the vote isn't open";
+    if (!g || g.phase !== "nominating") return "nominations aren't open";
     const me = joined.memberId;
     if (!g.players.includes(me)) return "you're not in this round";
-    if (!g.players.includes(targetId)) return "vote for a dealt player";
-    if (targetId === me) return "you can't vote for yourself";
-    g.votes[me] = targetId;
-    if (g.players.every((id) => g.votes[id] !== undefined)) closeVote(g);
+    if (!Array.isArray(picks) || picks.length !== 2) return "nominate exactly two players";
+    const [a, b] = picks;
+    if (a === b) return "pick two different players";
+    for (const id of picks) {
+      if (!g.players.includes(id)) return "pick dealt players";
+      if (id === me) return "you can't nominate yourself";
+    }
+    g.nominations[me] = [a, b];
+    if (g.players.every((id) => g.nominations[id] !== undefined)) closeNominations(g);
+    await saveGame(joined.roomId, g);
+  }));
+
+  // host closes nominations early - dead players don't point fingers
+  socket.on("closeNominations", withRoom(async (r) => {
+    const g = r.game;
+    if (!g || g.phase !== "nominating") return "nominations aren't open";
+    if (!closeNominations(g)) return "need at least two nominated players";
+    await saveGame(joined.roomId, g);
+  }, { hostOnly: true }));
+
+  socket.on("callVote", withRoom(async (r) => {
+    const g = r.game;
+    if (!g || g.phase !== "trial") return "wrong moment";
+    g.phase = "verdict";
+    await saveGame(joined.roomId, g);
+  }, { hostOnly: true }));
+
+  socket.on("vote", withRoom(async (r, { accusedId }) => {
+    const g = r.game;
+    if (!g || g.phase !== "verdict") return "the vote isn't open";
+    const me = joined.memberId;
+    if (!g.players.includes(me)) return "you're not in this round";
+    if (g.accused.includes(me)) return "the accused don't vote";
+    if (!g.accused.includes(accusedId)) return "vote for one of the accused";
+    g.votes[me] = accusedId;
+    const voters = g.players.filter((id) => !g.accused.includes(id));
+    if (voters.every((id) => g.votes[id] !== undefined)) closeVote(g);
     await saveGame(joined.roomId, g);
   }));
 
@@ -330,7 +412,7 @@ io.on("connection", (socket) => {
   // calls it whenever everyone still standing is in
   socket.on("closeVote", withRoom(async (r) => {
     const g = r.game;
-    if (!g || g.phase !== "vote") return "the vote isn't open";
+    if (!g || g.phase !== "verdict") return "the vote isn't open";
     if (Object.keys(g.votes).length === 0) return "nobody has voted yet";
     closeVote(g);
     await saveGame(joined.roomId, g);

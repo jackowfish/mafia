@@ -117,6 +117,7 @@ async function loadRoom(roomId) {
     game.nominations ??= {};
     game.votes ??= {};
     game.runoff ??= null;
+    if (game.runoff) game.runoff.attempt ??= 1;
   }
   const settings = meta.settings ? JSON.parse(meta.settings) : defaultSettings();
   return { meta, members, game, settings };
@@ -153,7 +154,8 @@ function newRound(playerIds, settings, prev) {
     alive: Object.fromEntries(order.map((id) => [id, true])),
     nominations: {},    // memberId -> [a, b]
     tally: null,        // nomineeId -> nomination count
-    runoff: null,       // { candidates, seats, locked, picks } when the cut is tied
+    runoff: null,       // { candidates, seats, locked, picks, attempt } when the cut is tied
+    drawnByLot: false,  // true when a twice-deadlocked runoff was cut by the deck
     accused: null,      // [idA, idB] - the two most-accused
     votes: {},          // memberId -> accusedId
     verdict: null,      // { counts, votes, hung, condemnedId }
@@ -200,7 +202,7 @@ function closeNominations(g) {
     g.accused = [...locked, ...tied];
     g.phase = "trial";
   } else {
-    g.runoff = { candidates: tied, seats: 2 - locked.length, locked, picks: {} };
+    g.runoff = { candidates: tied, seats: 2 - locked.length, locked, picks: {}, attempt: 1 };
     g.phase = "runoff";
   }
   return true;
@@ -220,13 +222,26 @@ function closeRunoff(g) {
     g.accused = [...ro.locked, ...winners, ...tied];
     g.runoff = null;
     g.phase = "trial";
+  } else if (winners.length === 0 && tied.length === ro.candidates.length) {
+    // the runoff changed nothing. give the town one more crack at it, then
+    // let the deck decide - with three players left the picks are forced and
+    // no amount of re-pointing can ever break the tie.
+    if (ro.attempt >= 2) {
+      g.accused = [...ro.locked, ...shuffle(tied).slice(0, ro.seats)];
+      g.drawnByLot = true;
+      g.runoff = null;
+      g.phase = "trial";
+    } else {
+      g.runoff = { ...ro, picks: {}, attempt: ro.attempt + 1 };
+    }
   } else {
-    // still deadlocked at the cut - narrow to the contested spots and point again
+    // partial progress - narrow to the contested spots and point again
     g.runoff = {
       candidates: tied,
       seats: ro.seats - winners.length,
       locked: [...ro.locked, ...winners],
       picks: {},
+      attempt: 1,
     };
   }
 }
@@ -312,12 +327,14 @@ function publicState(roomId, r) {
       candidates: g.runoff.candidates,
       seats: g.runoff.seats,
       locked: g.runoff.locked,
+      attempt: g.runoff.attempt,
       picksIn: Object.keys(g.runoff.picks).length,
       picksTotal: aliveIds(g).length,
     };
   }
   if (["trial", "verdict", "results"].includes(g.phase) && g.accused) {
     out.accused = g.accused.map((id) => ({ id, count: g.tally[id] || 0 }));
+    out.drawnByLot = !!g.drawnByLot;
   }
   if (g.phase === "verdict") {
     out.votesIn = Object.keys(g.votes).length;
@@ -467,9 +484,11 @@ io.on("connection", (socket) => {
     if (!g || !["table", "results"].includes(g.phase)) return "wrong moment";
     g.nominations = {};
     g.tally = null;
+    g.runoff = null;
     g.accused = null;
     g.votes = {};
     g.verdict = null;
+    g.drawnByLot = false;
     g.phase = "nominating";
     await saveGame(joined.roomId, g);
   }, { hostOnly: true }));

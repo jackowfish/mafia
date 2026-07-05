@@ -316,10 +316,12 @@ function renderNoms(s, alive, phase) {
   nomSel = nomSel.filter((id) => pool.some((m) => m.id === id)).slice(0, seats);
 
   if (runoff) {
-    $("nomHead").textContent = "dead heat for the gallows";
+    $("nomHead").textContent = s.runoff.attempt > 1 ? "still deadlocked" : "dead heat for the gallows";
     $("nomPrompt").innerHTML =
+      (s.runoff.attempt > 1 ? "nobody budged. " : "") +
       `${s.runoff.candidates.length} tied for ${seats === 1 ? "the last poster" : "the posters"}. ` +
-      `point <b>${seats === 1 ? "one finger" : "two fingers"}</b> - among the tied only.`;
+      `point <b>${seats === 1 ? "one finger" : "two fingers"}</b> - among the tied only.` +
+      (s.runoff.attempt > 1 ? " tie again and the deck decides." : "");
   } else {
     $("nomHead").textContent = "point two fingers";
     $("nomPrompt").innerHTML = "nominate <b>two</b> players you don't trust. the two most-accused stand trial.";
@@ -380,9 +382,10 @@ function renderTrial(s, alive, phase) {
     box.appendChild(div);
   }
 
-  $("trialLead").textContent = voting
+  const drawnNote = s.drawnByLot ? "the runoff wouldn't break, so the deck drew the posters. " : "";
+  $("trialLead").textContent = drawnNote + (voting
     ? (iAmAccused ? "the town votes on your fate. sit tight." : me.isHost ? "the vote is open. chase the stragglers, then close it." : "pick who hangs. choose well.")
-    : "each gives their speech. then the mayor calls the vote.";
+    : "each gives their speech. then the mayor calls the vote.");
   $("callVoteRow").classList.toggle("hidden", !(me.isHost && !voting));
   $("closeVoteRow").classList.toggle("hidden", !(me.isHost && voting));
   $("voteDone").classList.toggle("hidden", !(voting && priv?.votedFor !== undefined));

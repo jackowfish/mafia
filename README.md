@@ -19,10 +19,10 @@ The black aces come out one at a time as the table grows: 1 mafia at 4-8 players
 ## A round
 
 1. Host deals. Every player gets a card - hold it to peek. Mafia see their partners on screen.
-2. The mayor narrates the nights and days out loud, old-school.
-3. When the town wants blood, the mayor opens nominations: everyone points two fingers, and the two most-accused stand trial. A tie for a trial spot goes to a runoff among the tied - never to chance.
-4. Speeches out loud, then the mayor calls the vote. Everyone but the accused votes on who hangs.
-5. The verdict flips the condemned's card and shows the open ballot - who voted for whom. Ties hang the jury: the town talks it out and revotes on the same two (the mayor knows every hand, so the tiebreak is never theirs). The dead don't vote: the mayor can close nominations or votes early to skip them.
+2. The mayor narrates the nights out loud, old-school, and marks night kills with the ☠ button (undo with ↺). The dead can't point fingers or vote, and no phase waits on them - but nobody sees their card.
+3. When the town wants blood, the mayor opens nominations: the living point two fingers, and the two most-accused stand trial. A tie for a trial spot goes to a runoff among the tied - never to chance.
+4. Speeches out loud, then the mayor calls the vote. Every living player but the accused votes on who hangs.
+5. The verdict names the hanged (they're marked dead automatically) and shows the open ballot - who voted for whom - but never their card. Whether the town chose well, only the mayor knows. Ties hang the jury: the town talks it out and revotes on the same two.
 6. When the game's decided, the mayor flips every card face-up, then shuffles up the next round.
 
 4+ players plus the mayor. Rooms expire after 24h idle.

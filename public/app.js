@@ -182,7 +182,9 @@ function render() {
   if (!latest) return;
   const s = latest;
   const phase = s.phase;
-  const inRound = !!memberById(me.memberId)?.inRound;
+  const myself = memberById(me.memberId);
+  const inRound = !!myself?.inRound;
+  const alive = inRound && myself.alive;
 
   // a fresh deal → riffle the deck (not on first paint after a reload)
   if (phase === "table" && renderedRound !== null && s.round !== renderedRound) {
@@ -255,6 +257,8 @@ function render() {
   let ghost = "";
   if (!inRound && !me.isHost && phase !== "lobby") {
     ghost = "you're watching this round from the bar. you'll be dealt in at the next shuffle.";
+  } else if (inRound && !alive) {
+    ghost = "☠ you're dead. enjoy the show - no pointing, no voting.";
   }
   $("ghostNote").textContent = ghost;
   $("ghostNote").classList.toggle("hidden", !ghost);
@@ -262,8 +266,8 @@ function render() {
   // per-stage rendering
   if (phase === "lobby") renderLobbyStage(s);
   if (phase === "table") renderTable(s);
-  if (phase === "nominating" || phase === "runoff") renderNoms(s, inRound, phase);
-  if (phase === "trial" || phase === "verdict") renderTrial(s, inRound, phase);
+  if (phase === "nominating" || phase === "runoff") renderNoms(s, alive, phase);
+  if (phase === "trial" || phase === "verdict") renderTrial(s, alive, phase);
   if (phase === "results") renderResults(s);
   if (phase === "reveal") renderReveal(s);
 
@@ -300,11 +304,11 @@ function pickTile(m, selected, disabled) {
   return b;
 }
 
-function renderNoms(s, inRound, phase) {
+function renderNoms(s, alive, phase) {
   const runoff = phase === "runoff";
   const seats = runoff ? s.runoff.seats : 2;
   const pool = s.members.filter((m) =>
-    runoff ? s.runoff.candidates.includes(m.id) : m.inRound
+    runoff ? s.runoff.candidates.includes(m.id) : m.inRound && m.alive
   );
   // narrowed runoffs shrink the pool - drop any stale selections
   nomSel = nomSel.filter((id) => pool.some((m) => m.id === id)).slice(0, seats);
@@ -325,7 +329,7 @@ function renderNoms(s, inRound, phase) {
   const locked = runoff ? !!priv?.runoffPick : !!priv?.nominated;
 
   $("closeNomsRow").classList.toggle("hidden", !me.isHost);
-  if (!inRound) { hide($("nomLock")); hide($("nomDone")); return; }
+  if (!alive) { hide($("nomLock")); hide($("nomDone")); return; }
 
   const chosen = locked ? (runoff ? priv.runoffPick : priv.nominated) : nomSel;
   for (const m of pool) {
@@ -345,12 +349,12 @@ function renderNoms(s, inRound, phase) {
   $("nomDone").classList.toggle("hidden", !locked);
 }
 
-function renderTrial(s, inRound, phase) {
+function renderTrial(s, alive, phase) {
   const voting = phase === "verdict";
   const box = $("posters");
   box.innerHTML = "";
   const iAmAccused = (s.accused || []).some((a) => a.id === me.memberId);
-  const canVote = voting && inRound && !me.isHost && !iAmAccused;
+  const canVote = voting && alive && !me.isHost && !iAmAccused;
 
   for (const a of s.accused || []) {
     const div = document.createElement("div");
@@ -390,15 +394,11 @@ function renderResults(s) {
   if (v.hung) {
     $("resultsHead").textContent = "the jury hangs.";
     $("resultsLead").textContent = "dead heat. talk it out - then the town votes again. same two on the posters.";
-    hide($("condemnedBox"));
   } else {
     $("resultsHead").textContent = "the town has spoken.";
-    $("resultsLead").textContent = `${nameOf(v.condemnedId)} swings as ${v.condemnedCard.title} (${v.condemnedCard.rank}${v.condemnedCard.suit}).`;
-    $("condemnedImg").src = `/cards/${v.condemnedCard.code}.svg`;
-    $("condemnedName").textContent = nameOf(v.condemnedId);
-    $("condemnedTitle").textContent = v.condemnedCard.title;
-    $("condemnedBox").querySelector(".mini-card").classList.toggle("mafia", v.condemnedCard.role === "mafia");
-    show($("condemnedBox"));
+    // the card stays face-down - the dead keep their secrets until the mayor
+    // flips the whole table
+    $("resultsLead").textContent = `${nameOf(v.condemnedId)} swings. whether the town chose well, only the mayor knows.`;
   }
 
   // the ballot, out in the open
@@ -450,7 +450,10 @@ function renderLedger(allCards) {
   const box = $("ledgerCards");
   box.innerHTML = "";
   for (const [id, card] of Object.entries(allCards)) {
-    box.appendChild(miniCard(id, card));
+    const div = miniCard(id, card);
+    const m = memberById(id);
+    if (m && m.inRound && !m.alive) div.classList.add("dead-hand");
+    box.appendChild(div);
   }
 }
 
@@ -477,17 +480,31 @@ function renderMembers(s, phase) {
   const showStatus = ["nominating", "runoff", "verdict"].includes(phase);
   for (const m of s.members) {
     const li = document.createElement("li");
-    if (showStatus && m.acted && m.inRound) li.classList.add("acted");
+    const dead = m.inRound && !m.alive;
+    if (dead) li.classList.add("dead");
+    if (showStatus && m.acted && m.alive && m.inRound) li.classList.add("acted");
     const tags = [];
     if (m.id === me.memberId) tags.push(`<span class="you-tag">you</span>`);
     if (m.isHost) tags.push(`<span class="mayor-tag">🎩 mayor</span>`);
     let status = "";
     if (phase !== "lobby" && !m.inRound && !m.isHost) status = "at the bar";
+    else if (dead) status = "☠ dead";
     else if (showStatus && m.inRound) status = m.acted ? "done ✓" : "deciding…";
     li.innerHTML = `
       <div class="m-name">${escapeHtml(m.name)} ${tags.join(" ")}</div>
       <div class="m-status">${status}</div>
     `;
+    if (me.isHost && phase !== "lobby" && m.inRound) {
+      const sk = document.createElement("button");
+      sk.className = "skull-btn";
+      sk.textContent = m.alive ? "☠" : "↺";
+      sk.title = m.alive ? `mark ${m.name} dead` : `revive ${m.name}`;
+      sk.setAttribute("aria-label", sk.title);
+      sk.addEventListener("click", () => {
+        emitSimple("setAlive")({ memberId: m.id, alive: !m.alive });
+      });
+      li.appendChild(sk);
+    }
     if (me.isHost && !m.isHost) {
       const x = document.createElement("button");
       x.className = "drop-btn";

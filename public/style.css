@@ -546,11 +546,7 @@ input:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px
 .poster-vote { margin-top: var(--space-sm); width: 100%; max-width: 220px; }
 .poster-vote.voted { background: var(--color-ink); color: var(--color-paper); }
 
-/* ── the condemned & the tally ─────────────────────────────────────────── */
-
-.condemned { display: flex; justify-content: center; margin-bottom: var(--space-lg); }
-.condemned .mini-card { max-width: 132px; }
-.condemned .mini-card img { max-width: 132px; }
+/* ── the tally ─────────────────────────────────────────────────────────── */
 
 .tally {
   background: var(--color-paper);
@@ -623,6 +619,8 @@ input:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px
   letter-spacing: 0.06em;
 }
 .mini-card.mafia .mini-title { color: var(--color-blood-bright); }
+.mini-card.dead-hand { opacity: 0.5; }
+.mini-card.dead-hand .mini-name { text-decoration: line-through; }
 
 /* ── members ───────────────────────────────────────────────────────────── */
 
@@ -654,7 +652,20 @@ input:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px
   cursor: pointer;
 }
 .drop-btn:hover { color: var(--color-err); }
+.skull-btn {
+  position: absolute;
+  right: 4px; bottom: 2px;
+  background: none; border: none;
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+  line-height: 1;
+  padding: var(--space-2xs);
+  cursor: pointer;
+}
+.skull-btn:hover { color: var(--color-blood-bright); }
 .members li.acted { border-color: oklch(45% 0.08 145); }
+.members li.dead { opacity: 0.55; }
+.members li.dead .m-name { text-decoration: line-through; }
 .m-name {
   font-size: var(--text-sm);
   overflow-wrap: anywhere;

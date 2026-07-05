@@ -143,6 +143,7 @@ function newRound(playerIds, settings, prev) {
     phase: "table",     // table -> nominating -> trial -> verdict -> results -> (nominating again | reveal)
     players: order,
     cards,
+    alive: Object.fromEntries(order.map((id) => [id, true])),
     nominations: {},    // memberId -> [a, b]
     tally: null,        // nomineeId -> nomination count
     runoff: null,       // { candidates, seats, locked, picks } when the cut is tied
@@ -155,6 +156,23 @@ function newRound(playerIds, settings, prev) {
 const allByRole = (g, role) =>
   g.players.filter((id) => CARDS[g.cards[id]].role === role);
 
+const aliveIds = (g) => g.players.filter((id) => g.alive[id]);
+
+// phases only ever wait on the living - call after anything that changes
+// who's alive or who's still expected to act
+function recheckPhase(g) {
+  const living = aliveIds(g);
+  if (!living.length) return;
+  if (g.phase === "nominating" && living.every((id) => g.nominations[id] !== undefined)) {
+    closeNominations(g);
+  } else if (g.phase === "runoff" && living.every((id) => g.runoff.picks[id] !== undefined)) {
+    closeRunoff(g);
+  } else if (g.phase === "verdict") {
+    const voters = living.filter((id) => !g.accused.includes(id));
+    if (voters.length && voters.every((id) => g.votes[id] !== undefined)) closeVote(g);
+  }
+}
+
 // a tie for the trial spots is never broken by chance or by the mayor -
 // the tied candidates go to a runoff and the town points again
 function closeNominations(g) {
@@ -163,7 +181,7 @@ function closeNominations(g) {
     for (const id of picks) tally[id] = (tally[id] || 0) + 1;
   }
   for (const id of Object.keys(tally)) {
-    if (!g.players.includes(id)) delete tally[id]; // nominee left the table
+    if (!g.players.includes(id) || !g.alive[id]) delete tally[id]; // nominee left or died
   }
   const ranked = Object.keys(tally).sort((a, b) => tally[b] - tally[a]);
   if (ranked.length < 2) return false;
@@ -215,6 +233,7 @@ function closeVote(g) {
   }
   const hung = counts[a] === counts[b];
   const condemnedId = hung ? null : counts[a] > counts[b] ? a : b;
+  if (condemnedId) g.alive[condemnedId] = false; // the town hanged them
   g.verdict = { counts, votes: { ...g.votes }, hung, condemnedId };
   g.phase = "results";
 }
@@ -231,20 +250,11 @@ function removeFromRound(g, memberId) {
   }
   g.players = g.players.filter((id) => id !== memberId);
   delete g.cards[memberId];
+  delete g.alive[memberId];
   delete g.nominations[memberId];
   delete g.votes[memberId];
   if (g.runoff) delete g.runoff.picks[memberId];
-  // their exit might be the last thing a phase was waiting on
-  if (g.players.length) {
-    if (g.phase === "nominating" && g.players.every((id) => g.nominations[id] !== undefined)) {
-      closeNominations(g);
-    } else if (g.phase === "runoff" && g.players.every((id) => g.runoff.picks[id] !== undefined)) {
-      closeRunoff(g);
-    } else if (g.phase === "verdict") {
-      const voters = g.players.filter((id) => !g.accused.includes(id));
-      if (voters.length && voters.every((id) => g.votes[id] !== undefined)) closeVote(g);
-    }
-  }
+  recheckPhase(g); // their exit might be the last thing a phase was waiting on
   return null;
 }
 
@@ -254,6 +264,7 @@ function removeFromRound(g, memberId) {
 // ---------------------------------------------------------------------------
 
 function actedThisPhase(g, id) {
+  if (!g.alive[id]) return true; // nobody waits on the dead
   if (g.phase === "nominating") return g.nominations[id] !== undefined;
   if (g.phase === "runoff") return g.runoff.picks[id] !== undefined;
   if (g.phase === "verdict") {
@@ -279,6 +290,7 @@ function publicState(roomId, r) {
       name: members[id],
       isHost: id === meta.hostId,
       inRound: g ? g.players.includes(id) : false,
+      alive: g && g.players.includes(id) ? !!g.alive[id] : true,
       acted: g && g.players.includes(id) ? actedThisPhase(g, id) : false,
     })),
   };
@@ -286,7 +298,7 @@ function publicState(roomId, r) {
 
   if (g.phase === "nominating") {
     out.nomsIn = Object.keys(g.nominations).length;
-    out.nomsTotal = g.players.length;
+    out.nomsTotal = aliveIds(g).length;
   }
   if (g.phase === "runoff") {
     out.runoff = {
@@ -294,7 +306,7 @@ function publicState(roomId, r) {
       seats: g.runoff.seats,
       locked: g.runoff.locked,
       picksIn: Object.keys(g.runoff.picks).length,
-      picksTotal: g.players.length,
+      picksTotal: aliveIds(g).length,
     };
   }
   if (["trial", "verdict", "results"].includes(g.phase) && g.accused) {
@@ -302,13 +314,12 @@ function publicState(roomId, r) {
   }
   if (g.phase === "verdict") {
     out.votesIn = Object.keys(g.votes).length;
-    out.votersTotal = g.players.filter((id) => !g.accused.includes(id)).length;
+    out.votersTotal = aliveIds(g).filter((id) => !g.accused.includes(id)).length;
   }
+  // the verdict names the hanged but never shows their card - the dead keep
+  // their secrets until the mayor flips the whole table at game's end
   if (g.phase === "results" && g.verdict) {
-    out.verdict = {
-      ...g.verdict,
-      condemnedCard: g.verdict.condemnedId ? cardPublic(g.cards[g.verdict.condemnedId]) : null,
-    };
+    out.verdict = g.verdict;
   }
   if (g.phase === "reveal") {
     out.allCards = Object.fromEntries(
@@ -453,15 +464,16 @@ io.on("connection", (socket) => {
     if (!g || g.phase !== "nominating") return "nominations aren't open";
     const me = joined.memberId;
     if (!g.players.includes(me)) return "you're not in this round";
+    if (!g.alive[me]) return "the dead don't point fingers";
     if (!Array.isArray(picks) || picks.length !== 2) return "nominate exactly two players";
     const [a, b] = picks;
     if (a === b) return "pick two different players";
     for (const id of picks) {
-      if (!g.players.includes(id)) return "pick dealt players";
+      if (!g.players.includes(id) || !g.alive[id]) return "pick living players";
       if (id === me) return "you can't nominate yourself";
     }
     g.nominations[me] = [a, b];
-    if (g.players.every((id) => g.nominations[id] !== undefined)) closeNominations(g);
+    recheckPhase(g);
     await saveGame(joined.roomId, g);
   }));
 
@@ -478,6 +490,7 @@ io.on("connection", (socket) => {
     if (!g || g.phase !== "runoff") return "there's no runoff";
     const me = joined.memberId;
     if (!g.players.includes(me)) return "you're not in this round";
+    if (!g.alive[me]) return "the dead don't point fingers";
     const ro = g.runoff;
     if (!Array.isArray(picks) || picks.length !== ro.seats) {
       return `pick exactly ${ro.seats === 1 ? "one" : "two"} of the tied`;
@@ -488,7 +501,7 @@ io.on("connection", (socket) => {
       if (id === me) return "you can't pick yourself";
     }
     ro.picks[me] = picks;
-    if (g.players.every((id) => ro.picks[id] !== undefined)) closeRunoff(g);
+    recheckPhase(g);
     await saveGame(joined.roomId, g);
   }));
 
@@ -512,11 +525,11 @@ io.on("connection", (socket) => {
     if (!g || g.phase !== "verdict") return "the vote isn't open";
     const me = joined.memberId;
     if (!g.players.includes(me)) return "you're not in this round";
+    if (!g.alive[me]) return "the dead don't vote";
     if (g.accused.includes(me)) return "the accused don't vote";
     if (!g.accused.includes(accusedId)) return "vote for one of the accused";
     g.votes[me] = accusedId;
-    const voters = g.players.filter((id) => !g.accused.includes(id));
-    if (voters.every((id) => g.votes[id] !== undefined)) closeVote(g);
+    recheckPhase(g);
     await saveGame(joined.roomId, g);
   }));
 
@@ -546,6 +559,30 @@ io.on("connection", (socket) => {
     const g = r.game;
     if (!g) return "no round in progress";
     g.phase = "reveal";
+    await saveGame(joined.roomId, g);
+  }, { hostOnly: true }));
+
+  // the mayor calls a death (night kill read out loud) - or undoes a misclick.
+  // hangings mark themselves when the verdict closes.
+  socket.on("setAlive", withRoom(async (r, { memberId, alive }) => {
+    const g = r.game;
+    if (!g) return "no round in progress";
+    if (typeof alive !== "boolean") return "bad call";
+    if (!g.players.includes(memberId)) return "they're not in this round";
+    if (!alive && ["trial", "verdict"].includes(g.phase) && g.accused.includes(memberId)) {
+      return "not while they're on trial - see it through first";
+    }
+    if (!alive && g.phase === "runoff" && g.runoff.candidates.includes(memberId)) {
+      return "not mid-runoff - settle it first";
+    }
+    g.alive[memberId] = alive;
+    if (!alive) {
+      // the dead take their pending fingers and ballots with them
+      delete g.nominations[memberId];
+      delete g.votes[memberId];
+      if (g.runoff) delete g.runoff.picks[memberId];
+      recheckPhase(g);
+    }
     await saveGame(joined.roomId, g);
   }, { hostOnly: true }));
 

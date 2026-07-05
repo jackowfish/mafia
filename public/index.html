@@ -110,6 +110,14 @@
         <img class="shuf s5" src="/cards/back.svg" alt="" />
       </div>
 
+      <!-- the app calls the game when the cards decide it -->
+      <div id="winnerBox" class="winner-box hidden">
+        <p id="winnerText"></p>
+        <div class="host-actions hidden" id="winnerActions">
+          <button id="revealBtn3" class="btn btn-accent">flip everyone's cards</button>
+        </div>
+      </div>
+
       <p id="privateNote" class="private-note hidden"></p>
 
       <!-- the mayor's ledger: every hand, their eyes only -->

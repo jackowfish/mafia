@@ -240,11 +240,23 @@ function render() {
     hide($("myCardBox"));
   }
 
-  // mafia see their partners
+  // the game calls itself when the cards decide it
+  if (s.winner) {
+    $("winnerText").textContent = s.winner === "town"
+      ? "☀️ every last mafia is in the ground. the town wins."
+      : "🔫 the mafia has the town outnumbered. nothing left to stop them - mafia wins.";
+    $("winnerActions").classList.toggle("hidden", !me.isHost || phase === "reveal");
+    show($("winnerBox"));
+  } else {
+    hide($("winnerBox"));
+  }
+
+  // mafia see their partners; the mayor hears when the angel holds the line
   const notes = [];
   if (inRound && priv?.partners?.length) {
     notes.push(`🔫 Your partner${priv.partners.length === 1 ? "" : "s"} in crime: ${priv.partners.map(nameOf).join(", ")}.`);
   }
+  if (me.isHost && priv?.mayorNote) notes.push(`🎩 ${priv.mayorNote}`);
   $("privateNote").textContent = notes.join(" ");
   $("privateNote").classList.toggle("hidden", notes.length === 0);
 
@@ -582,6 +594,7 @@ $("revoteBtn").addEventListener("click", () => emitSimple("revote")());
 $("closeVoteBtn").addEventListener("click", () => emitSimple("closeVote")());
 $("revealBtn").addEventListener("click", () => emitSimple("reveal")());
 $("revealBtn2").addEventListener("click", () => emitSimple("reveal")());
+$("revealBtn3").addEventListener("click", () => emitSimple("reveal")());
 
 $("nomLock").addEventListener("click", () => {
   if (latest?.phase === "runoff") {

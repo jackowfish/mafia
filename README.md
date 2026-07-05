@@ -23,7 +23,8 @@ The black aces come out one at a time as the table grows: 1 mafia at 4-8 players
 3. When the town wants blood, the mayor opens nominations: the living point two fingers, and the two most-accused stand trial. A tie for a trial spot goes to a runoff among the tied - never to chance.
 4. Speeches out loud, then the mayor calls the vote. Every living player but the accused votes on who hangs.
 5. The verdict names the hanged (they're marked dead automatically) and the vote counts - but never their card, and never who voted for whom. The full ballot and every hand are the mayor's alone. Ties hang the jury: the town talks it out and revotes on the same two.
-6. When the game's decided, the mayor flips every card face-up, then shuffles up the next round.
+6. The app calls the game itself: town wins when the last mafia falls; mafia wins when they have the numbers (they control every vote and every night). One wrinkle - at parity with the Angel still alive the game isn't over, and only the mayor is told why, since saying so would out the Angel.
+7. When it's called, the mayor flips every card face-up, then shuffles up the next round.
 
 4+ players plus the mayor. Rooms expire after 24h idle.
 

@@ -167,6 +167,18 @@ const allByRole = (g, role) =>
 
 const aliveIds = (g) => g.players.filter((id) => g.alive[id]);
 
+// the app knows every hand, so it can call the game: town wins when the last
+// mafia falls; mafia wins with the numbers (they control every vote and every
+// night) - unless the angel still stands to keep the town breathing.
+function gameOutcome(g) {
+  const living = aliveIds(g);
+  const mafia = living.filter((id) => CARDS[g.cards[id]].role === "mafia").length;
+  if (mafia === 0) return "town";
+  const angelStands = living.some((id) => CARDS[g.cards[id]].role === "angel");
+  if (mafia >= living.length - mafia && !angelStands) return "mafia";
+  return null;
+}
+
 // phases only ever wait on the living - call after anything that changes
 // who's alive or who's still expected to act
 function recheckPhase(g) {
@@ -318,6 +330,8 @@ function publicState(roomId, r) {
   };
   if (!g) return out;
 
+  out.winner = gameOutcome(g);
+
   if (g.phase === "nominating") {
     out.nomsIn = Object.keys(g.nominations).length;
     out.nomsTotal = aliveIds(g).length;
@@ -364,6 +378,15 @@ function privateState(r, id) {
       allCards: Object.fromEntries(g.players.map((p) => [p, cardPublic(g.cards[p])])),
     };
     if (g.phase === "results" && g.verdict) out.ballot = g.verdict.votes;
+    // parity with the angel alive isn't over - but saying so publicly would
+    // out the angel, so only the mayor hears it
+    if (!gameOutcome(g)) {
+      const living = aliveIds(g);
+      const mafia = living.filter((p) => CARDS[g.cards[p]].role === "mafia").length;
+      if (mafia > 0 && mafia >= living.length - mafia) {
+        out.mayorNote = "the mafia has the numbers - the angel is all that stands between them and the town.";
+      }
+    }
     return out;
   }
   if (!g.players.includes(id)) return { card: null };

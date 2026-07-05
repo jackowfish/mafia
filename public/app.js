@@ -401,20 +401,23 @@ function renderResults(s) {
     $("resultsLead").textContent = `${nameOf(v.condemnedId)} swings. whether the town chose well, only the mayor knows.`;
   }
 
-  // the ballot, out in the open
+  // everyone sees the counts; who voted for whom is the mayor's to keep
   const box = $("tallyBox");
   box.innerHTML = "";
   const voters = {};
-  for (const [voter, target] of Object.entries(v.votes)) {
+  for (const [voter, target] of Object.entries(priv?.ballot || {})) {
     (voters[target] = voters[target] || []).push(voter);
   }
   for (const id of [a, b].sort((x, y) => (v.counts[y] || 0) - (v.counts[x] || 0))) {
     const row = document.createElement("div");
     row.className = "tally-row" + (!v.hung && v.condemnedId === id ? " top" : "");
+    const voterLine = me.isHost
+      ? `<span class="tally-voters">${(voters[id] || []).map((x) => escapeHtml(nameOf(x))).join(", ")}</span>`
+      : "";
     row.innerHTML = `
       <span class="tally-name">${escapeHtml(nameOf(id))}</span>
       <span class="tally-count">${v.counts[id] || 0} vote${(v.counts[id] || 0) === 1 ? "" : "s"}</span>
-      <span class="tally-voters">${(voters[id] || []).map((x) => escapeHtml(nameOf(x))).join(", ")}</span>
+      ${voterLine}
     `;
     box.appendChild(row);
   }

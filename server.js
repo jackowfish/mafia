@@ -316,10 +316,11 @@ function publicState(roomId, r) {
     out.votesIn = Object.keys(g.votes).length;
     out.votersTotal = aliveIds(g).filter((id) => !g.accused.includes(id)).length;
   }
-  // the verdict names the hanged but never shows their card - the dead keep
-  // their secrets until the mayor flips the whole table at game's end
+  // the verdict names the hanged and the counts - but never their card, and
+  // never who voted for whom. the ballot is the mayor's to keep.
   if (g.phase === "results" && g.verdict) {
-    out.verdict = g.verdict;
+    const { counts, hung, condemnedId } = g.verdict;
+    out.verdict = { counts, hung, condemnedId };
   }
   if (g.phase === "reveal") {
     out.allCards = Object.fromEntries(
@@ -332,12 +333,14 @@ function publicState(roomId, r) {
 function privateState(r, id) {
   const g = r.game;
   if (!g) return { card: null };
-  // the mayor narrates the nights, so they see every hand
+  // the mayor narrates the nights, so they see every hand - and the ballot
   if (id === r.meta.hostId) {
-    return {
+    const out = {
       card: cardPrivate("KS"),
       allCards: Object.fromEntries(g.players.map((p) => [p, cardPublic(g.cards[p])])),
     };
+    if (g.phase === "results" && g.verdict) out.ballot = g.verdict.votes;
+    return out;
   }
   if (!g.players.includes(id)) return { card: null };
   const code = g.cards[id];

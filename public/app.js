@@ -26,13 +26,13 @@ function hide(el) { el.classList.add("hidden"); }
 
 // ── lobby ──────────────────────────────────────────────────────────────────
 
-async function createRoom(test = false) {
+async function createRoom() {
   if ($("joinCode").value.trim()) return; // a code in the field means you're joining
   const name = $("name").value.trim() || "Host";
   const res = await fetch("/api/rooms", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, test }),
+    body: JSON.stringify({ name }),
   });
   if (!res.ok) { $("lobbyErr").textContent = "couldn't open the saloon"; return; }
   const { roomId, hostId, hostToken } = await res.json();
@@ -41,11 +41,32 @@ async function createRoom(test = false) {
   enterRoom(roomId, name, { hostToken });
 }
 
-function joinRoom(codeOverride) {
-  const code = (codeOverride || $("joinCode").value).trim().toUpperCase();
+async function joinRoom(codeOverride) {
+  const raw = (codeOverride || $("joinCode").value).trim();
+  const code = raw.toUpperCase();
   const name = $("name").value.trim() || (store.get(code)?.name || "");
   if (!code) { $("lobbyErr").textContent = "enter a table code"; return; }
   if (!name) { $("lobbyErr").textContent = "enter your name"; return; }
+
+  // the hidden back room: if what they typed is the pin, the server opens a
+  // solo test table instead of joining. the pin lives on the server, so a
+  // wrong guess just 403s and falls through to an ordinary join - the lobby
+  // never hints the mode is there.
+  try {
+    const res = await fetch("/api/rooms", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, test: true, pin: raw }),
+    });
+    if (res.ok) {
+      const { roomId, hostId, hostToken } = await res.json();
+      store.set(roomId, { memberId: hostId, hostToken, name });
+      location.hash = roomId;
+      enterRoom(roomId, name, { hostToken });
+      return;
+    }
+  } catch {}
+
   location.hash = code;
   enterRoom(code, name, {});
 }
@@ -588,8 +609,7 @@ function renderMembers(s, phase) {
 
 // ── wire up ────────────────────────────────────────────────────────────────
 
-$("create").addEventListener("click", () => createRoom(false));
-$("createTest").addEventListener("click", () => createRoom(true));
+$("create").addEventListener("click", createRoom);
 $("join").addEventListener("click", () => joinRoom());
 // a table code in the field means you're joining, not hosting - covers
 // typing, paste, autofill, and values the browser restores on back/reload

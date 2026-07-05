@@ -729,8 +729,6 @@ input:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px
 
 /* ── test tables: the bot filler ───────────────────────────────────────── */
 
-.test-link { display: block; margin: var(--space-md) auto 0; }
-
 .bot-row {
   display: flex; align-items: center; justify-content: center;
   flex-wrap: wrap;

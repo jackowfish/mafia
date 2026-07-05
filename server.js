@@ -12,6 +12,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REDIS_URL = process.env.REDIS_URL || "redis://127.0.0.1:6379";
 const PORT = Number(process.env.PORT || 3000);
 
+// the hidden back room. a test table only opens for whoever types this pin
+// into the table-code box - it lives on the server, never in the client
+// bundle, so the lobby gives no sign the mode exists. set TEST_PIN="" to turn
+// the whole thing off.
+const TEST_PIN = process.env.TEST_PIN ?? "SPEAKEASY";
+
 const redisOpts = { maxRetriesPerRequest: null, enableReadyCheck: true };
 const redis = new Redis(REDIS_URL, redisOpts);
 const pubClient = new Redis(REDIS_URL, redisOpts);
@@ -524,7 +530,15 @@ async function broadcast(roomId) {
 
 app.post("/api/rooms", async (req, res) => {
   const name = (req.body?.name || "Host").toString().slice(0, 40);
-  const test = !!req.body?.test; // a test table: own namespace, seats bots
+  // a test table: own namespace, seats bots - but only for the right pin, so
+  // it can't be conjured by a stranger who reads the client source
+  const test = !!req.body?.test;
+  if (test) {
+    const pin = String(req.body?.pin ?? "").trim();
+    if (!TEST_PIN || pin.toUpperCase() !== TEST_PIN.toUpperCase()) {
+      return res.status(403).json({ error: "no such table" });
+    }
+  }
   let roomId;
   for (let i = 0; i < 5; i++) {
     roomId = test ? `TEST-${rid()}` : rid();

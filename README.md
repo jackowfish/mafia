@@ -43,6 +43,7 @@ Open http://localhost:3000.
 | --- | --- | --- |
 | `PORT` | `3000` | HTTP port |
 | `REDIS_URL` | `redis://127.0.0.1:6379` | Redis connection string. If unset or pointing at localhost, an in-container Redis is started; otherwise the bundled one stays off. |
+| `TEST_PIN` | `SPEAKEASY` | Pin that opens a hidden solo test table (see below). Set to `""` to disable. |
 
 ## Deploy (HA)
 
@@ -55,9 +56,13 @@ Point `REDIS_URL` at a shared Redis (any non-localhost host) and run as many rep
 
 ## Test games (solo)
 
-"open a test table" on the lobby screen spins up an isolated room for trying the app out alone. Test tables:
+There's a hidden back room for trying the app out alone. It's not shown anywhere in the lobby - to open it, type the **test pin** into the `TABLE CODE` box (with a name filled in) and hit *sit down*. The pin lives on the server (`TEST_PIN`, default `SPEAKEASY`), never in the client bundle, so a normal player sees no sign the mode exists. A wrong guess just falls through to an ordinary join.
+
+Test tables:
 
 - get a `TEST-XXXX` code and live in their own Redis namespace (`testroom:*`), so they never collide with or show up alongside real tables.
 - let the host seat **auto-playing bots** ("add bots" in the lobby) to fill the seats. Bots are dealt in like any player, then point and vote themselves - the moment the mayor opens nominations they resolve to a trial, and a called vote resolves to a verdict. One person can run a whole game start to finish, no second device needed.
 
 Everything else is a normal game: mark night kills, open nominations, call the vote, reveal.
+
+Set `TEST_PIN` to change the pin, or `TEST_PIN=""` to disable test tables entirely.

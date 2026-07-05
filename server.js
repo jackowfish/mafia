@@ -111,6 +111,13 @@ async function loadRoom(roomId) {
   const members = await redis.hgetall(keys.members(roomId));
   const raw = await redis.get(keys.game(roomId));
   const game = raw ? JSON.parse(raw) : null;
+  if (game) {
+    // rounds dealt before a deploy may predate newer fields - backfill them
+    game.alive ??= Object.fromEntries(game.players.map((id) => [id, true]));
+    game.nominations ??= {};
+    game.votes ??= {};
+    game.runoff ??= null;
+  }
   const settings = meta.settings ? JSON.parse(meta.settings) : defaultSettings();
   return { meta, members, game, settings };
 }

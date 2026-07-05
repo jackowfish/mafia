@@ -434,6 +434,23 @@ input:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px
   margin-top: var(--space-md);
 }
 
+.conn-note {
+  text-align: center;
+  font-family: var(--font-label);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  color: var(--color-lamp-dim);
+  margin-bottom: var(--space-md);
+  animation: conn-pulse 1.2s ease-in-out infinite;
+}
+@keyframes conn-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .conn-note { animation: none; }
+}
+
 .winner-box {
   border: 2px solid var(--color-lamp);
   border-radius: var(--radius-sm);

@@ -441,6 +441,9 @@ app.post("/api/rooms", async (req, res) => {
 io.on("connection", (socket) => {
   let joined = null; // { roomId, memberId, isHost }
 
+  // liveness probe - waking phones use this to spot zombie sockets
+  socket.on("hi", (_payload, ack) => ack?.({ ok: true }));
+
   const withRoom = (handler, { hostOnly = false } = {}) => async (payload, ack) => {
     try {
       if (!joined) return ack?.({ error: "not joined" });

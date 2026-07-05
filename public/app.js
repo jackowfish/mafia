@@ -73,6 +73,8 @@ function applyHashMode() {
 function exitToLobby(msg = "") {
   try { socket?.disconnect(); } catch {}
   socket = null;
+  wakeUp = null;
+  hide($("connNote"));
   latest = null;
   priv = null;
   renderedPhase = null;
@@ -96,7 +98,32 @@ function enterRoom(roomId, name, { hostToken } = {}) {
 
   let firstJoin = true;
 
-  socket = io();
+  socket = io({ reconnectionDelayMax: 2000, timeout: 8000 });
+
+  // phones sleep constantly mid-game; the moment one wakes, reconnect
+  // instead of waiting out ping timeouts and suspended backoff timers.
+  // a socket can also come back as a zombie that still claims connected -
+  // probe it, and hard-cycle the transport if it doesn't answer fast.
+  wakeUp = () => {
+    if (!socket) return;
+    if (!socket.connected) {
+      show($("connNote"));
+      socket.connect();
+      return;
+    }
+    socket.timeout(2500).emit("hi", null, (err) => {
+      if (!socket) return;
+      if (err) {
+        show($("connNote"));
+        socket.disconnect();
+        socket.connect(); // "connect" handler re-joins and pulls fresh state
+      } else {
+        doJoin();
+      }
+    });
+  };
+
+  socket.on("disconnect", () => show($("connNote")));
 
   socket.on("kicked", () => {
     // the seat is gone - forget it so a rejoin starts fresh
@@ -105,6 +132,7 @@ function enterRoom(roomId, name, { hostToken } = {}) {
   });
 
   const doJoin = () => {
+    hide($("connNote"));
     const s2 = store.get(roomId) || {};
     socket.emit(
       "join",
@@ -148,6 +176,14 @@ function enterRoom(roomId, name, { hostToken } = {}) {
 }
 
 let rejoin = null; // re-emits join on the live socket (used after a rename)
+let wakeUp = null; // forces a reconnect/refresh when the device wakes
+
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) wakeUp?.();
+});
+for (const ev of ["pageshow", "online", "focus"]) {
+  window.addEventListener(ev, () => wakeUp?.());
+}
 
 // ── helpers ────────────────────────────────────────────────────────────────
 

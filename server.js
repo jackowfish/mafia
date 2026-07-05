@@ -363,13 +363,18 @@ function privateState(r, id) {
 }
 
 async function broadcast(roomId) {
-  const r = await loadRoom(roomId);
-  if (!r) return;
-  io.to(roomId).emit("state", publicState(roomId, r));
-  for (const id of Object.keys(r.members)) {
-    io.to(`${roomId}:m:${id}`).emit("private", privateState(r, id));
+  // never let one bad room take the process down - broadcast runs unawaited
+  try {
+    const r = await loadRoom(roomId);
+    if (!r) return;
+    io.to(roomId).emit("state", publicState(roomId, r));
+    for (const id of Object.keys(r.members)) {
+      io.to(`${roomId}:m:${id}`).emit("private", privateState(r, id));
+    }
+    touch(roomId).catch(() => {});
+  } catch (e) {
+    console.error(`broadcast failed for room ${roomId}:`, e);
   }
-  touch(roomId).catch(() => {});
 }
 
 app.post("/api/rooms", async (req, res) => {

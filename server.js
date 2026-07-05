@@ -89,10 +89,18 @@ const specialsCount = (s) =>
 const minPlayersFor = (s) => Math.max(4, 2 + specialsCount(s));
 const maxPlayersFor = (s) => TOWN_CODES.length + MAFIA_CARDS.length + specialsCount(s);
 
+// test rooms live in their own key namespace so they never collide with real
+// tables and never turn up in a `room:*` scan. the code carries the marker too
+// (`TEST-XXXX`), so both the code and the storage are unmistakably separate. a
+// real code is 4 chars with no hyphen, so the two can never overlap.
+const isTestRoom = (r) => typeof r === "string" && r.startsWith("TEST-");
+const nsFor = (r) => (isTestRoom(r) ? "testroom" : "room");
+
 const keys = {
-  meta: (r) => `room:${r}:meta`,
-  members: (r) => `room:${r}:members`,
-  game: (r) => `room:${r}:game`,
+  meta: (r) => `${nsFor(r)}:${r}:meta`,
+  members: (r) => `${nsFor(r)}:${r}:members`,
+  game: (r) => `${nsFor(r)}:${r}:game`,
+  bots: (r) => `${nsFor(r)}:${r}:bots`, // a set of the member ids that are test players
 };
 
 const TTL = 60 * 60 * 24;
@@ -102,6 +110,7 @@ async function touch(roomId) {
     redis.expire(keys.meta(roomId), TTL),
     redis.expire(keys.members(roomId), TTL),
     redis.expire(keys.game(roomId), TTL),
+    redis.expire(keys.bots(roomId), TTL),
   ]);
 }
 
@@ -120,7 +129,8 @@ async function loadRoom(roomId) {
     if (game.runoff) game.runoff.attempt ??= 1;
   }
   const settings = meta.settings ? JSON.parse(meta.settings) : defaultSettings();
-  return { meta, members, game, settings };
+  const bots = new Set(await redis.smembers(keys.bots(roomId)));
+  return { meta, members, game, settings, bots, isTest: isTestRoom(roomId) };
 }
 
 async function saveGame(roomId, game) {
@@ -135,7 +145,7 @@ const RELEASE_LOCK =
   "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end";
 
 async function withLock(roomId, fn) {
-  const lockKey = `room:${roomId}:lock`;
+  const lockKey = `${nsFor(roomId)}:${roomId}:lock`;
   const token = crypto.randomBytes(8).toString("hex");
   const deadline = Date.now() + 5000;
   while (!(await redis.set(lockKey, token, "PX", 5000, "NX"))) {
@@ -327,6 +337,65 @@ function removeFromRound(g, memberId) {
 }
 
 // ---------------------------------------------------------------------------
+// test players (bots): only ever seated in a TEST- room. they fill the table
+// so one person can drive a whole game solo. a bot acts the instant its phase
+// opens; since a phase closes itself the moment the last living player is in,
+// nominations resolve straight to a trial and a called vote to a verdict -
+// no second device required. their picks are random but always legal.
+// ---------------------------------------------------------------------------
+
+function botNominate(g, id) {
+  const pool = aliveIds(g).filter((x) => x !== id);
+  if (pool.length < 2) return null;
+  const s = shuffle(pool);
+  return [s[0], s[1]];
+}
+
+function botRunoffPick(g, id) {
+  const ro = g.runoff;
+  const pool = ro.candidates.filter((x) => x !== id);
+  if (pool.length < ro.seats) return null;
+  return shuffle(pool).slice(0, ro.seats);
+}
+
+function botVote(g, id) {
+  const opts = g.accused.filter((x) => x !== id); // the accused don't vote anyway
+  return opts.length ? shuffle(opts)[0] : null;
+}
+
+// let every living bot take its pending action for the current phase, then
+// settle it. the loop matters: closing nominations can open a runoff the same
+// bots must point in, and closing that lands the trial - all in one turn.
+function driveBots(g, bots) {
+  if (!g || !bots || bots.size === 0) return;
+  for (let guard = 0; guard < 50; guard++) {
+    const living = aliveIds(g).filter((id) => bots.has(id));
+    let acted = false;
+    if (g.phase === "nominating") {
+      for (const id of living) {
+        if (g.nominations[id] !== undefined) continue;
+        const pick = botNominate(g, id);
+        if (pick) { g.nominations[id] = pick; acted = true; }
+      }
+    } else if (g.phase === "runoff") {
+      for (const id of living) {
+        if (g.runoff.picks[id] !== undefined) continue;
+        const pick = botRunoffPick(g, id);
+        if (pick) { g.runoff.picks[id] = pick; acted = true; }
+      }
+    } else if (g.phase === "verdict") {
+      for (const id of living) {
+        if (g.accused.includes(id) || g.votes[id] !== undefined) continue;
+        const v = botVote(g, id);
+        if (v) { g.votes[id] = v; acted = true; }
+      }
+    }
+    if (!acted) break;         // nothing left to do in a bot-driven phase
+    recheckPhase(g);           // the last bot in may be who the phase waited on
+  }
+}
+
+// ---------------------------------------------------------------------------
 // state fan-out: one public payload for the room, one private payload
 // per player (their card, their vote, their partners in crime)
 // ---------------------------------------------------------------------------
@@ -348,6 +417,7 @@ function publicState(roomId, r) {
   const out = {
     roomId,
     settings,
+    isTest: !!r.isTest,
     minPlayers: minPlayersFor(settings),
     maxPlayers: maxPlayersFor(settings),
     phase: g ? g.phase : "lobby",
@@ -357,6 +427,7 @@ function publicState(roomId, r) {
       id,
       name: members[id],
       isHost: id === meta.hostId,
+      isBot: r.bots ? r.bots.has(id) : false,
       inRound: g ? g.players.includes(id) : false,
       alive: g && g.players.includes(id) ? !!g.alive[id] : true,
       acted: g && g.players.includes(id) ? actedThisPhase(g, id) : false,
@@ -453,9 +524,10 @@ async function broadcast(roomId) {
 
 app.post("/api/rooms", async (req, res) => {
   const name = (req.body?.name || "Host").toString().slice(0, 40);
+  const test = !!req.body?.test; // a test table: own namespace, seats bots
   let roomId;
   for (let i = 0; i < 5; i++) {
-    roomId = rid();
+    roomId = test ? `TEST-${rid()}` : rid();
     const exists = await redis.exists(keys.meta(roomId));
     if (!exists) break;
   }
@@ -552,6 +624,7 @@ io.on("connection", (socket) => {
     g.verdict = null;
     g.drawnByLot = false;
     g.phase = "nominating";
+    driveBots(g, r.bots);
     await saveGame(joined.roomId, g);
   }, { hostOnly: true }));
 
@@ -570,6 +643,7 @@ io.on("connection", (socket) => {
     }
     g.nominations[me] = [a, b];
     recheckPhase(g);
+    driveBots(g, r.bots);
     await saveGame(joined.roomId, g);
   }));
 
@@ -578,6 +652,7 @@ io.on("connection", (socket) => {
     const g = r.game;
     if (!g || g.phase !== "nominating") return "nominations aren't open";
     if (!closeNominations(g)) return "need at least two nominated players";
+    driveBots(g, r.bots); // an early close may open a runoff the bots must point in
     await saveGame(joined.roomId, g);
   }, { hostOnly: true }));
 
@@ -598,6 +673,7 @@ io.on("connection", (socket) => {
     }
     ro.picks[me] = picks;
     recheckPhase(g);
+    driveBots(g, r.bots);
     await saveGame(joined.roomId, g);
   }));
 
@@ -606,6 +682,7 @@ io.on("connection", (socket) => {
     if (!g || g.phase !== "runoff") return "there's no runoff";
     if (Object.keys(g.runoff.picks).length === 0) return "nobody has picked yet";
     closeRunoff(g);
+    driveBots(g, r.bots); // a narrowed runoff sends the bots back to point again
     await saveGame(joined.roomId, g);
   }, { hostOnly: true }));
 
@@ -613,6 +690,7 @@ io.on("connection", (socket) => {
     const g = r.game;
     if (!g || g.phase !== "trial") return "wrong moment";
     g.phase = "verdict";
+    driveBots(g, r.bots); // the jury of bots casts the moment the vote opens
     await saveGame(joined.roomId, g);
   }, { hostOnly: true }));
 
@@ -626,6 +704,7 @@ io.on("connection", (socket) => {
     if (!g.accused.includes(accusedId)) return "vote for one of the accused";
     g.votes[me] = accusedId;
     recheckPhase(g);
+    driveBots(g, r.bots);
     await saveGame(joined.roomId, g);
   }));
 
@@ -647,6 +726,7 @@ io.on("connection", (socket) => {
     g.votes = {};
     g.verdict = null;
     g.phase = "verdict";
+    driveBots(g, r.bots); // same two accused, the bots weigh in again
     await saveGame(joined.roomId, g);
   }, { hostOnly: true }));
 
@@ -680,8 +760,30 @@ io.on("connection", (socket) => {
       if (g.runoff) delete g.runoff.picks[memberId];
       dropNominationsAgainst(g, memberId);
       recheckPhase(g);
+      driveBots(g, r.bots); // a fresh corpse can void picks the bots must redo
     }
     await saveGame(joined.roomId, g);
+  }, { hostOnly: true }));
+
+  // fill a test table with bots so one person can run a whole game. bots seat
+  // like any other player - dealt in at the next shuffle - but act themselves.
+  socket.on("addBots", withRoom(async (r, { count }) => {
+    if (!r.isTest) return "test players are only for test tables";
+    const n = Math.max(1, Math.min(20, Math.floor(Number(count)) || 1));
+    const seated = Object.keys(r.members).length - 1; // the mayor holds no hand
+    const room = maxPlayersFor(r.settings) - seated;
+    if (room <= 0) return `the deck is full (max ${maxPlayersFor(r.settings)} players)`;
+    const toAdd = Math.min(n, room);
+    const from = r.bots.size;
+    const writes = {};
+    const ids = [];
+    for (let i = 0; i < toAdd; i++) {
+      const id = crypto.randomUUID();
+      writes[id] = `Bot ${from + i + 1}`;
+      ids.push(id);
+    }
+    await redis.hset(keys.members(joined.roomId), writes);
+    await redis.sadd(keys.bots(joined.roomId), ...ids);
   }, { hostOnly: true }));
 
   // a player walks out - their seat empties for good
@@ -694,14 +796,18 @@ io.on("connection", (socket) => {
     if (r.game) await saveGame(joined.roomId, r.game);
   }));
 
-  // the mayor shows somebody the door
+  // the mayor shows somebody the door (a bot or a real player)
   socket.on("dropMember", withRoom(async (r, { memberId }) => {
     if (memberId === r.meta.hostId) return "you can't drop yourself";
     if (!r.members[memberId]) return "no such player";
     const err = removeFromRound(r.game, memberId);
     if (err) return err;
     await redis.hdel(keys.members(joined.roomId), memberId);
-    if (r.game) await saveGame(joined.roomId, r.game);
+    await redis.srem(keys.bots(joined.roomId), memberId); // no-op for real players
+    if (r.game) {
+      driveBots(r.game, r.bots); // their exit may leave picks for the bots to redo
+      await saveGame(joined.roomId, r.game);
+    }
     io.to(`${joined.roomId}:m:${memberId}`).emit("kicked");
   }, { hostOnly: true }));
 

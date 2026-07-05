@@ -48,6 +48,7 @@
       </div>
       <div class="divider"><span>or</span></div>
       <button id="create" class="btn btn-primary btn-big">open the saloon</button>
+      <button id="createTest" class="link test-link">🧪 open a test table (seats bots, solo-playable)</button>
 
       <p id="lobbyErr" class="err" role="alert"></p>
     </section>
@@ -133,6 +134,13 @@
       <!-- ─── waiting for the deal ─── -->
       <div id="stageLobby" class="stage hidden">
         <p class="stage-lead" id="lobbyHint"></p>
+        <!-- test tables only: fill the seats with auto-playing bots -->
+        <div class="bot-row hidden" id="botRow">
+          <span class="bot-row-label">🧪 test players</span>
+          <input id="botCount" class="bot-count" type="number" min="1" max="20" value="5"
+                 inputmode="numeric" aria-label="how many test players to add" />
+          <button id="addBotsBtn" class="btn btn-secondary">add bots</button>
+        </div>
         <div class="host-actions hidden" id="dealRow">
           <button id="dealBtn" class="btn btn-accent btn-big">deal the cards</button>
         </div>

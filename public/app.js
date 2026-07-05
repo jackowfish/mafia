@@ -26,13 +26,13 @@ function hide(el) { el.classList.add("hidden"); }
 
 // ── lobby ──────────────────────────────────────────────────────────────────
 
-async function createRoom() {
+async function createRoom(test = false) {
   if ($("joinCode").value.trim()) return; // a code in the field means you're joining
   const name = $("name").value.trim() || "Host";
   const res = await fetch("/api/rooms", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, test }),
   });
   if (!res.ok) { $("lobbyErr").textContent = "couldn't open the saloon"; return; }
   const { roomId, hostId, hostToken } = await res.json();
@@ -326,10 +326,17 @@ function render() {
 
 function renderLobbyStage(s) {
   const players = s.members.length - 1; // the host plays the mayor, not a hand
-  const hint = players < s.minPlayers
-    ? `${players} player${players === 1 ? "" : "s"} at the table (plus the mayor) - need at least ${s.minPlayers} to deal.`
-    : `${players} players at the table. share the link, then deal when everyone's seated.`;
+  let hint;
+  if (players < s.minPlayers) {
+    hint = `${players} player${players === 1 ? "" : "s"} at the table (plus the mayor) - need at least ${s.minPlayers} to deal.`;
+  } else if (s.isTest) {
+    hint = `${players} players at the table. deal, then run the game solo - the bots point and vote themselves.`;
+  } else {
+    hint = `${players} players at the table. share the link, then deal when everyone's seated.`;
+  }
   $("lobbyHint").textContent = hint;
+  // test tables get the bot-filler; it only shows for the mayor before the deal
+  $("botRow").classList.toggle("hidden", !(s.isTest && me.isHost));
   $("dealRow").classList.toggle("hidden", !me.isHost);
   $("dealBtn").disabled = players < s.minPlayers || players > s.maxPlayers;
   $("dealBtn").textContent = players > s.maxPlayers
@@ -542,6 +549,7 @@ function renderMembers(s, phase) {
     const tags = [];
     if (m.id === me.memberId) tags.push(`<span class="you-tag">you</span>`);
     if (m.isHost) tags.push(`<span class="mayor-tag">🎩 mayor</span>`);
+    if (m.isBot) tags.push(`<span class="bot-tag">🤖 bot</span>`);
     let status = "";
     if (phase !== "lobby" && !m.inRound && !m.isHost) status = "at the bar";
     else if (dead) status = "☠ dead";
@@ -580,7 +588,8 @@ function renderMembers(s, phase) {
 
 // ── wire up ────────────────────────────────────────────────────────────────
 
-$("create").addEventListener("click", createRoom);
+$("create").addEventListener("click", () => createRoom(false));
+$("createTest").addEventListener("click", () => createRoom(true));
 $("join").addEventListener("click", () => joinRoom());
 // a table code in the field means you're joining, not hosting - covers
 // typing, paste, autofill, and values the browser restores on back/reload
@@ -618,6 +627,10 @@ $("renameBtn").addEventListener("click", () => {
 const emitSimple = (event) => (payload = {}) =>
   socket.emit(event, payload, (r) => { if (r?.error) alert(r.error); });
 
+$("addBotsBtn").addEventListener("click", () => {
+  const count = Math.max(1, Math.min(20, parseInt($("botCount").value, 10) || 1));
+  emitSimple("addBots")({ count });
+});
 $("dealBtn").addEventListener("click", () => emitSimple("deal")());
 $("redealBtn").addEventListener("click", () => emitSimple("deal")());
 $("nextBtn").addEventListener("click", () => emitSimple("deal")());

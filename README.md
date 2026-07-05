@@ -52,3 +52,12 @@ Point `REDIS_URL` at a shared Redis (any non-localhost host) and run as many rep
 
 - deal the Sheriff (K♥)
 - deal the Angel (A♥)
+
+## Test games (solo)
+
+"open a test table" on the lobby screen spins up an isolated room for trying the app out alone. Test tables:
+
+- get a `TEST-XXXX` code and live in their own Redis namespace (`testroom:*`), so they never collide with or show up alongside real tables.
+- let the host seat **auto-playing bots** ("add bots" in the lobby) to fill the seats. Bots are dealt in like any player, then point and vote themselves - the moment the mayor opens nominations they resolve to a trial, and a called vote resolves to a verdict. One person can run a whole game start to finish, no second device needed.
+
+Everything else is a normal game: mark night kills, open nominations, call the vote, reveal.

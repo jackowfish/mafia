@@ -713,7 +713,7 @@ input:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px
   color: var(--color-muted);
   letter-spacing: 0.04em;
 }
-.you-tag, .mayor-tag {
+.you-tag, .mayor-tag, .bot-tag {
   font-family: var(--font-label);
   font-size: 0.6rem;
   line-height: 1;
@@ -725,6 +725,29 @@ input:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px
 }
 .you-tag { background: var(--color-lamp); color: var(--color-night); }
 .mayor-tag { background: var(--color-paper); color: var(--color-ink); border: 1px solid var(--color-paper-edge); }
+.bot-tag { background: transparent; color: var(--color-lamp-dim); border: 1px solid var(--color-lamp-dim); }
+
+/* ── test tables: the bot filler ───────────────────────────────────────── */
+
+.test-link { display: block; margin: var(--space-md) auto 0; }
+
+.bot-row {
+  display: flex; align-items: center; justify-content: center;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+}
+.bot-row-label {
+  font-family: var(--font-label);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--color-lamp-dim);
+}
+.bot-count {
+  width: 4.5rem;
+  text-align: center;
+}
 
 /* ── modal ─────────────────────────────────────────────────────────────── */
 

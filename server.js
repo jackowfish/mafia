@@ -127,6 +127,28 @@ async function saveGame(roomId, game) {
   await redis.set(keys.game(roomId), JSON.stringify(game), "EX", TTL);
 }
 
+// every mutating action does load -> change -> save. without a lock two acts
+// that land in the same redis round-trip both read the old state and the
+// second save clobbers the first (a lost vote/nomination). serialize per room
+// so the cycle is atomic - across instances too, since the lock lives in redis.
+const RELEASE_LOCK =
+  "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end";
+
+async function withLock(roomId, fn) {
+  const lockKey = `room:${roomId}:lock`;
+  const token = crypto.randomBytes(8).toString("hex");
+  const deadline = Date.now() + 5000;
+  while (!(await redis.set(lockKey, token, "PX", 5000, "NX"))) {
+    if (Date.now() > deadline) throw new Error("lock timeout");
+    await new Promise((res) => setTimeout(res, 15));
+  }
+  try {
+    return await fn();
+  } finally {
+    redis.eval(RELEASE_LOCK, 1, lockKey, token).catch(() => {});
+  }
+}
+
 function shuffle(arr) {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
@@ -272,6 +294,17 @@ function closeVote(g) {
   g.phase = "results";
 }
 
+// a finger pointed at someone who's now dead or gone can't stand - a
+// nomination is a pair, and half a pair is no accusation. void the whole
+// pick so the pointer chooses again from the living. without this, stale
+// nominations get stripped at close time and can strand the round below the
+// two names a trial needs, with everyone already "done".
+function dropNominationsAgainst(g, gone) {
+  for (const [voter, picks] of Object.entries(g.nominations)) {
+    if (picks.includes(gone)) delete g.nominations[voter];
+  }
+}
+
 // pull somebody out of the running round (they left or got dropped).
 // returns an error string, or null after cleanly removing them.
 function removeFromRound(g, memberId) {
@@ -288,6 +321,7 @@ function removeFromRound(g, memberId) {
   delete g.nominations[memberId];
   delete g.votes[memberId];
   if (g.runoff) delete g.runoff.picks[memberId];
+  dropNominationsAgainst(g, memberId);
   recheckPhase(g); // their exit might be the last thing a phase was waiting on
   return null;
 }
@@ -448,9 +482,11 @@ io.on("connection", (socket) => {
     try {
       if (!joined) return ack?.({ error: "not joined" });
       if (hostOnly && !joined.isHost) return ack?.({ error: "host only" });
-      const r = await loadRoom(joined.roomId);
-      if (!r) return ack?.({ error: "room not found" });
-      const err = await handler(r, payload || {});
+      const err = await withLock(joined.roomId, async () => {
+        const r = await loadRoom(joined.roomId);
+        if (!r) return "room not found";
+        return await handler(r, payload || {});
+      });
       if (err) return ack?.({ error: err });
       ack?.({ ok: true });
       broadcast(joined.roomId);
@@ -637,10 +673,12 @@ io.on("connection", (socket) => {
     }
     g.alive[memberId] = alive;
     if (!alive) {
-      // the dead take their pending fingers and ballots with them
+      // the dead take their pending fingers and ballots with them - and any
+      // finger pointed at them is void, so those pointers choose again
       delete g.nominations[memberId];
       delete g.votes[memberId];
       if (g.runoff) delete g.runoff.picks[memberId];
+      dropNominationsAgainst(g, memberId);
       recheckPhase(g);
     }
     await saveGame(joined.roomId, g);

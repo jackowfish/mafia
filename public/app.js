@@ -133,7 +133,6 @@ function enterRoom(roomId, name, { hostToken } = {}) {
           show($("room"));
           $("roomId").textContent = roomId;
           $("youAre").textContent = `you: ${me.name}${me.isHost ? " (mayor)" : ""}`;
-          if (me.isHost) show($("settingsBtn"));
         }
       }
     );
@@ -213,8 +212,11 @@ function render() {
   $("setSheriff").checked = !!s.settings.sheriffEnabled;
   $("setAngel").checked = !!s.settings.angelEnabled;
 
-  // names settle once the first hand is dealt
+  // lobby-only controls: renames, house rules, and dropping players all
+  // settle once the first hand is dealt
   $("renameBtn").classList.toggle("hidden", phase !== "lobby");
+  $("settingsBtn").classList.toggle("hidden", !(me.isHost && phase === "lobby"));
+  if (phase !== "lobby" && !$("settingsModal").classList.contains("hidden")) closeSettings();
 
   // stages
   for (const id of STAGES) hide($(id));
@@ -508,7 +510,7 @@ function renderMembers(s, phase) {
       });
       li.appendChild(sk);
     }
-    if (me.isHost && !m.isHost) {
+    if (me.isHost && !m.isHost && phase === "lobby") {
       const x = document.createElement("button");
       x.className = "drop-btn";
       x.title = `drop ${m.name}`;

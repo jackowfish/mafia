@@ -1,51 +1,63 @@
-/* Hallmark · component: game-app · genre: atmospheric · theme: custom
- * vibe: "late-night terminal, a Turing test run as a party game"
- * paper: oklch(15% 0.02 220) · accent: oklch(80% 0.16 165) phosphor green
- * signal: oklch(72% 0.15 220) cyan · alert: oklch(70% 0.19 20) red
- * fonts: VT323 (display) + Space Grotesk (body) + IBM Plex Mono (labels)
- * axes: dark / mono-forward / cool
+/* Hallmark · component: game-app · genre: retro-horror-arcade · theme: custom
+ * vibe: "a possessed 1992 arcade cabinet runs a Turing test as a party game"
+ * ref: Pony Island - curved CRT, heavy scanlines, red/blue de-calibration,
+ *      electric-blue corrupted menu, demonic red accents, cute-pony pink
+ * screen: oklch(13% 0.02 250) · primary: oklch(72% 0.15 232) electric cyan
+ * hellfire: oklch(60% 0.23 25) red · phosphor: oklch(82% 0.19 150) green
+ * pony: oklch(74% 0.20 350) pink (the human hides as the pony)
+ * fonts: Press Start 2P (wordmark) + VT323 (headings) + IBM Plex Mono (body)
+ * axes: dark / pixel-arcade / cool-with-hot-accents
  * states: default · hover · focus · active · disabled · loading · error · success
- * pre-emit critique: P4 H4 E4 S5 R4 V5
+ * pre-emit critique: P5 H4 E4 S5 R4 V6
  */
 
 :root {
-  /* the terminal at night */
-  --color-void: oklch(14% 0.018 240);
-  --color-void-2: oklch(18% 0.022 238);
-  --color-panel: oklch(21% 0.026 236);
-  --color-panel-2: oklch(25% 0.03 234);
-  --color-edge: oklch(34% 0.03 230);
-  --color-edge-2: oklch(44% 0.05 210);
+  /* the screen */
+  --color-black: oklch(9% 0.012 255);
+  --color-screen: oklch(13% 0.02 252);
+  --color-screen-2: oklch(17% 0.026 250);
+  --color-panel: oklch(20% 0.03 248);
+  --color-edge: oklch(38% 0.06 240);
+  --color-edge-2: oklch(50% 0.09 232);
 
-  /* phosphor + signal */
-  --color-phosphor: oklch(84% 0.17 162);
-  --color-phosphor-dim: oklch(66% 0.12 165);
-  --color-signal: oklch(74% 0.14 220);
-  --color-signal-dim: oklch(58% 0.09 225);
-  --color-glow: oklch(70% 0.15 190 / 0.22);
+  /* electric blue - the corrupted OS */
+  --color-cyan: oklch(74% 0.15 232);
+  --color-cyan-bright: oklch(86% 0.16 220);
+  --color-cyan-dim: oklch(52% 0.11 235);
 
-  /* human / imposter warmth */
-  --color-human: oklch(78% 0.16 55);
-  --color-human-bright: oklch(84% 0.17 60);
+  /* hellfire red - Lucifer, glitches, alerts */
+  --color-red: oklch(62% 0.23 25);
+  --color-red-bright: oklch(72% 0.24 28);
+
+  /* phosphor green - the machine / success */
+  --color-green: oklch(84% 0.2 150);
+  --color-green-dim: oklch(64% 0.15 152);
+
+  /* pony pink - the human hides here */
+  --color-pony: oklch(76% 0.2 350);
+  --color-pony-bright: oklch(84% 0.19 352);
+
+  --color-amber: oklch(82% 0.15 78);
 
   /* text */
-  --color-text: oklch(92% 0.012 220);
-  --color-muted: oklch(66% 0.02 225);
-  --color-focus: oklch(82% 0.15 200);
-  --color-ok: oklch(82% 0.16 162);
-  --color-err: oklch(70% 0.19 20);
+  --color-text: oklch(91% 0.03 225);
+  --color-muted: oklch(64% 0.04 235);
+  --color-focus: oklch(86% 0.16 210);
+  --color-ok: var(--color-green);
+  --color-err: var(--color-red-bright);
 
   /* type */
-  --font-display: "VT323", "Courier New", monospace;
-  --font-body: "Space Grotesk", "Segoe UI", system-ui, sans-serif;
+  --font-arcade: "Press Start 2P", "Courier New", monospace;
+  --font-pixel: "VT323", "Courier New", monospace;
   --font-mono: "IBM Plex Mono", "Courier New", monospace;
+  --font-body: "IBM Plex Mono", "Courier New", monospace;
 
   --text-xs: 0.75rem;
-  --text-sm: 0.875rem;
+  --text-sm: 0.9rem;
   --text-md: 1.0625rem;
-  --text-lg: 1.375rem;
-  --text-xl: 1.875rem;
-  --text-display: clamp(3rem, 12vw, 5.5rem);
+  --text-lg: 1.45rem;
+  --text-xl: 2rem;
+  --text-display: clamp(1.9rem, 8.5vw, 3.4rem);
 
   --space-2xs: 0.25rem;
   --space-xs: 0.5rem;
@@ -55,17 +67,20 @@
   --space-xl: 2rem;
   --space-2xl: 3rem;
 
-  --radius-sm: 4px;
-  --radius-md: 8px;
-  --radius-card: 14px;
+  --radius-sm: 3px;
+  --radius-md: 6px;
+  --radius-card: 10px;
 
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
-  --dur-fast: 130ms;
-  --dur-med: 260ms;
+  --dur-fast: 110ms;
+  --dur-med: 240ms;
 
+  /* hard pixel-shadow (no blur) for the arcade-button look */
+  --pixel-shadow: 4px 4px 0 oklch(0% 0 0 / 0.55);
+  --pixel-shadow-sm: 3px 3px 0 oklch(0% 0 0 / 0.5);
   --rule: 1px solid var(--color-edge);
-  --shadow-card: 0 18px 50px oklch(0% 0 0 / 0.55);
-  --shadow-lift: 0 8px 24px oklch(0% 0 0 / 0.5), 0 0 28px var(--color-glow);
+  --shadow-card: 0 0 0 2px var(--color-black), 0 0 34px oklch(74% 0.15 232 / 0.14),
+    0 22px 60px oklch(0% 0 0 / 0.6);
 }

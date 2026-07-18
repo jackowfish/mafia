@@ -1,14 +1,14 @@
-# imposter
+# wetware
 
-A party game where one of you pretends to be an AI. The **operator** sends a prompt to the machine and gets back a line-up of answers - all but one written by Claude. The odd one out is the **imposter**, a player trying to sound like the machine. Everyone else reads the answers and votes on which one has a pulse.
+A party game where one of you pretends to be an AI. The **operator** sends a prompt to the machine and gets back a line-up of answers - all but one written by Claude. The odd one out is the **imposter**: a human, the *wetware*, trying to pass as software. Everyone else reads the answers and votes on which one still has a pulse.
 
-Real-time and phone-friendly: open a channel, share the link, and play across the room.
+Dressed up as a possessed 1992 arcade cabinet (heavy CRT, scanlines, red/blue glitch) but plays like a phone-friendly party game: open a channel, share the link, play across the room.
 
 ## A round
 
-1. **Roles.** Each round the app secretly picks one **operator** (public - they write the prompt) and one **imposter** (secret - they fake an answer). Everyone else are **detectives**. Roles rotate every round.
+1. **Roles.** Each round the app secretly picks one **operator** (public - they write the prompt) and one **imposter** (secret - the human hiding among the machines). Everyone else are **detectives**. Roles rotate every round.
 2. **The prompt.** The operator asks the machine a question - ideally one an imposter can't easily fake.
-3. **The answers.** The machine (Claude) writes several answers to the prompt. At the same time, the imposter writes one answer of their own, trying to blend in. All the answers are shuffled into a lettered line-up.
+3. **The answers.** The machine (Claude) writes several answers to the prompt. At the same time, the imposter writes one answer of their own, trying to blend in. Every answer - human and machine - is held to **at most 3 sentences** so length can't give the human away. They're shuffled into a lettered line-up.
 4. **The vote.** Every detective reads the line-up and votes for the answer they think a human wrote. The imposter sits it out.
 5. **The reveal.** The human answer is unmasked, the imposter is named, and the votes are tallied. Detectives who caught the imposter score a point each; the imposter scores a point for everyone they fooled. Running scores carry across rounds.
 
@@ -16,13 +16,13 @@ Real-time and phone-friendly: open a channel, share the link, and play across th
 
 ## The machine
 
-With an `ANTHROPIC_API_KEY` set, the decoy answers are written live by Claude (`claude-opus-4-8` by default) from the operator's prompt. Without a key, the game falls back to a canned pool of generic AI-sounding lines so it still runs offline (they won't match the prompt, so it's easier - handy for local testing).
+With an `ANTHROPIC_API_KEY` set, the decoy answers are written live by Claude (`claude-opus-4-8` by default) from the operator's prompt, capped at 3 sentences each. Without a key, the game falls back to a canned pool of generic AI-sounding lines so it still runs offline (they won't match the prompt, so it's easier - handy for local testing).
 
 ## Run
 
 ```
-docker build -t imposter .
-docker run --rm -p 3000:3000 -e ANTHROPIC_API_KEY=sk-ant-... imposter
+docker build -t wetware .
+docker run --rm -p 3000:3000 -e ANTHROPIC_API_KEY=sk-ant-... wetware
 ```
 
 Open http://localhost:3000. (Omit the key to run in offline/fallback mode.)
@@ -56,7 +56,7 @@ Point `REDIS_URL` at a shared Redis (any non-localhost host) and run as many rep
 
 ## Test games (solo)
 
-There's a hidden back room for trying the app out alone. It's not shown anywhere in the lobby - to open it, type the **test pin** into the `CHANNEL CODE` box (with a handle filled in) and hit *connect*. The pin lives on the server (`TEST_PIN`, default `GHOST`), never in the client bundle, so a normal player sees no sign the mode exists. A wrong guess just falls through to an ordinary join.
+There's a hidden back room for trying the app out alone. It's not shown anywhere in the lobby - to open it, type the **test pin** into the `CHANNEL CODE` box (with a handle filled in) and hit *jack in*. The pin lives on the server (`TEST_PIN`, default `GHOST`), never in the client bundle, so a normal player sees no sign the mode exists. A wrong guess just falls through to an ordinary join.
 
 Test tables:
 

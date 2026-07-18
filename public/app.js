@@ -3,11 +3,11 @@ const $ = (id) => document.getElementById(id);
 const store = {
   get(roomId) {
     try {
-      return JSON.parse(localStorage.getItem(`imposter:${roomId}`) || "null");
+      return JSON.parse(localStorage.getItem(`wetware:${roomId}`) || "null");
     } catch { return null; }
   },
   set(roomId, data) {
-    localStorage.setItem(`imposter:${roomId}`, JSON.stringify(data));
+    localStorage.setItem(`wetware:${roomId}`, JSON.stringify(data));
   },
 };
 
@@ -175,7 +175,7 @@ function enterRoom(roomId, name, { hostToken } = {}) {
           hide($("lobby"));
           show($("room"));
           $("roomId").textContent = roomId;
-          $("youAre").textContent = `you: ${me.name}${me.isHost ? " (operator)" : ""}`;
+          $("youAre").textContent = `you: ${me.name}${me.isHost ? " (host)" : ""}`;
         }
       }
     );
@@ -476,7 +476,7 @@ function renderMembers(s, phase) {
     if (showVoteStatus && m.acted && m.inRound && m.id !== s.promptMasterId) li.classList.add("acted");
     const tags = [];
     if (m.id === me.memberId) tags.push(`<span class="you-tag">you</span>`);
-    if (m.isHost) tags.push(`<span class="host-tag">🛰 op</span>`);
+    if (m.isHost) tags.push(`<span class="host-tag">🛰 host</span>`);
     if (m.isBot) tags.push(`<span class="bot-tag">🤖</span>`);
     // the operator is public; the imposter never is
     if (phase !== "lobby" && m.id === s.promptMasterId) tags.push(`<span class="op-tag">operator</span>`);
@@ -544,7 +544,7 @@ $("renameBtn").addEventListener("click", () => {
   if (!n || n === me.name) return;
   me.name = n;
   store.set(me.roomId, { ...(store.get(me.roomId) || {}), name: n });
-  $("youAre").textContent = `you: ${n}${me.isHost ? " (operator)" : ""}`;
+  $("youAre").textContent = `you: ${n}${me.isHost ? " (host)" : ""}`;
   rejoin?.();
 });
 

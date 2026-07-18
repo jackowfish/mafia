@@ -2,7 +2,7 @@ name: Deploy
 
 # Build the image and push to GHCR with a sortable `<timestamp>-<sha>` tag
 # plus `latest`. Flux ImageUpdateAutomation in the server-utilities repo picks
-# up the new tag and commits the bump to k8s/apps/imposter/app.yaml.
+# up the new tag and commits the bump to k8s/apps/wetware/app.yaml.
 #
 # Inlined (rather than calling the shared build-image.yml reusable workflow)
 # because a public repo can't resolve that private reusable workflow.
@@ -44,7 +44,7 @@ jobs:
           context: .
           push: true
           tags: |
-            ghcr.io/jackowfish/imposter:${{ steps.tag.outputs.value }}
-            ghcr.io/jackowfish/imposter:latest
+            ghcr.io/jackowfish/wetware:${{ steps.tag.outputs.value }}
+            ghcr.io/jackowfish/wetware:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max

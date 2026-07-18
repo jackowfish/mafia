@@ -66,14 +66,15 @@ const LABELS = "ABCDEFGH".split("");
 // ---------------------------------------------------------------------------
 
 const systemPrompt = (n) =>
-  `You are generating candidate answers for a party game called IMPOSTER. ` +
+  `You are generating candidate answers for a party game called WETWARE. ` +
   `Players are shown several answers to a single prompt and must guess which one ` +
   `was secretly written by a human pretending to be an AI. ` +
   `Write exactly ${n} DISTINCT answers to the user's prompt. ` +
   `Each answer should read like a natural, helpful AI assistant reply - plausible, ` +
-  `clear, and genuinely responsive to the prompt. Vary the phrasing, length, and ` +
-  `angle across the ${n} answers so they don't feel templated. ` +
-  `Keep each answer short: 1-3 sentences, under about 60 words. ` +
+  `clear, and genuinely responsive to the prompt. Vary the phrasing and angle ` +
+  `across the ${n} answers so they don't feel templated. ` +
+  `HARD LIMIT: each answer is AT MOST 3 sentences and under 55 words - shorter is ` +
+  `better, and one or two sentences is ideal. Never exceed 3 sentences. ` +
   `Do not number them, quote them, or add any labels. ` +
   `Return JSON of the form {"answers": ["...", "..."]}.`;
 
@@ -124,13 +125,23 @@ function shuffle(arr) {
 
 const cleanText = (s) => String(s ?? "").replace(/\s+/g, " ").trim().slice(0, 600);
 
+// hold every answer to the same shape - at most 3 sentences - so length can't
+// give the human away and a chatty model can't run long.
+function capSentences(s, maxSentences = 3, maxChars = 320) {
+  let t = cleanText(s);
+  const parts = t.match(/[^.!?]+[.!?]+|[^.!?]+$/g);
+  if (parts && parts.length > maxSentences) t = parts.slice(0, maxSentences).join("").trim();
+  if (t.length > maxChars) t = t.slice(0, maxChars).replace(/\s+\S*$/, "").trim();
+  return t;
+}
+
 // take whatever the model returned (or nothing) and make it exactly n distinct,
 // non-empty answers - padding from the canned pool if the model came up short.
 function normalizeAnswers(raw, n) {
   const seen = new Set();
   const out = [];
   const push = (t) => {
-    const c = cleanText(t);
+    const c = capSentences(t);
     const key = c.toLowerCase();
     if (c && !seen.has(key)) { seen.add(key); out.push(c); }
   };
@@ -279,7 +290,7 @@ function maybeBuildSlots(g) {
   if (g.phase !== "answering") return false;
   if (g.imposterAnswer == null || g.aiPending || !Array.isArray(g.aiResponses)) return false;
   const entries = shuffle([
-    { text: cleanText(g.imposterAnswer), isHuman: true, authorId: g.imposterId },
+    { text: capSentences(g.imposterAnswer), isHuman: true, authorId: g.imposterId },
     ...g.aiResponses.map((t) => ({ text: t, isHuman: false, authorId: null })),
   ]);
   g.slots = entries.map((e, i) => ({ id: LABELS[i], ...e }));
@@ -743,5 +754,5 @@ io.on("connection", (socket) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`imposter listening on :${PORT}, redis=${REDIS_URL}, ai=${anthropic ? MODEL : "off (fallback pool)"}`);
+  console.log(`wetware listening on :${PORT}, redis=${REDIS_URL}, ai=${anthropic ? MODEL : "off (fallback pool)"}`);
 });

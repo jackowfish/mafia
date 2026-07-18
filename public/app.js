@@ -3,21 +3,19 @@ const $ = (id) => document.getElementById(id);
 const store = {
   get(roomId) {
     try {
-      return JSON.parse(localStorage.getItem(`mafia:${roomId}`) || "null");
+      return JSON.parse(localStorage.getItem(`imposter:${roomId}`) || "null");
     } catch { return null; }
   },
   set(roomId, data) {
-    localStorage.setItem(`mafia:${roomId}`, JSON.stringify(data));
+    localStorage.setItem(`imposter:${roomId}`, JSON.stringify(data));
   },
 };
 
 let socket = null;
 let me = { roomId: null, memberId: null, isHost: false, name: "" };
-let latest = null;   // public room state
-let priv = null;     // my private state (card, picks, partners; every hand for the mayor)
+let latest = null; // public room state
+let priv = null;   // my private state (role, my answer, my vote)
 
-// local UI selections, reset when the phase turns over
-let nomSel = [];
 let renderedPhase = null;
 let renderedRound = null;
 
@@ -34,7 +32,7 @@ async function createRoom() {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name }),
   });
-  if (!res.ok) { $("lobbyErr").textContent = "couldn't open the saloon"; return; }
+  if (!res.ok) { $("lobbyErr").textContent = "couldn't open a channel"; return; }
   const { roomId, hostId, hostToken } = await res.json();
   store.set(roomId, { memberId: hostId, hostToken, name });
   location.hash = roomId;
@@ -45,13 +43,12 @@ async function joinRoom(codeOverride) {
   const raw = (codeOverride || $("joinCode").value).trim();
   const code = raw.toUpperCase();
   const name = $("name").value.trim() || (store.get(code)?.name || "");
-  if (!code) { $("lobbyErr").textContent = "enter a table code"; return; }
-  if (!name) { $("lobbyErr").textContent = "enter your name"; return; }
+  if (!code) { $("lobbyErr").textContent = "enter a channel code"; return; }
+  if (!name) { $("lobbyErr").textContent = "enter a handle"; return; }
 
   // the hidden back room: if what they typed is the pin, the server opens a
-  // solo test table instead of joining. the pin lives on the server, so a
-  // wrong guess just 403s and falls through to an ordinary join - the lobby
-  // never hints the mode is there.
+  // solo test table instead of joining. a wrong guess just 403s and falls
+  // through to an ordinary join - the lobby never hints the mode is there.
   try {
     const res = await fetch("/api/rooms", {
       method: "POST",
@@ -75,7 +72,6 @@ function hashCode() {
   return location.hash.length > 1 ? location.hash.slice(1).toUpperCase() : "";
 }
 
-// one lobby screen for everything: a shared link just prefills the code
 function applyHashMode() {
   const code = hashCode();
   if (code) {
@@ -121,10 +117,9 @@ function enterRoom(roomId, name, { hostToken } = {}) {
 
   socket = io({ reconnectionDelayMax: 2000, timeout: 8000 });
 
-  // phones sleep constantly mid-game; the moment one wakes, reconnect
-  // instead of waiting out ping timeouts and suspended backoff timers.
-  // a socket can also come back as a zombie that still claims connected -
-  // probe it, and hard-cycle the transport if it doesn't answer fast.
+  // phones sleep constantly mid-game; the moment one wakes, reconnect instead
+  // of waiting out ping timeouts. a socket can also come back a zombie that
+  // still claims connected - probe it, and hard-cycle if it doesn't answer.
   wakeUp = () => {
     if (!socket) return;
     if (!socket.connected) {
@@ -137,7 +132,7 @@ function enterRoom(roomId, name, { hostToken } = {}) {
       if (err) {
         show($("connNote"));
         socket.disconnect();
-        socket.connect(); // "connect" handler re-joins and pulls fresh state
+        socket.connect();
       } else {
         doJoin();
       }
@@ -147,9 +142,8 @@ function enterRoom(roomId, name, { hostToken } = {}) {
   socket.on("disconnect", () => show($("connNote")));
 
   socket.on("kicked", () => {
-    // the seat is gone - forget it so a rejoin starts fresh
     store.set(roomId, { name: (store.get(roomId) || {}).name });
-    exitToLobby("the mayor showed you the door.");
+    exitToLobby("the operator removed you from the channel.");
   });
 
   const doJoin = () => {
@@ -181,14 +175,12 @@ function enterRoom(roomId, name, { hostToken } = {}) {
           hide($("lobby"));
           show($("room"));
           $("roomId").textContent = roomId;
-          $("youAre").textContent = `you: ${me.name}${me.isHost ? " (mayor)" : ""}`;
+          $("youAre").textContent = `you: ${me.name}${me.isHost ? " (operator)" : ""}`;
         }
       }
     );
   };
 
-  // re-emit join on every (re)connect so the socket gets put back in the
-  // room and resumes receiving state broadcasts after a disconnect
   socket.on("connect", doJoin);
   rejoin = doJoin;
 
@@ -196,8 +188,8 @@ function enterRoom(roomId, name, { hostToken } = {}) {
   socket.on("private", (p) => { priv = p; render(); });
 }
 
-let rejoin = null; // re-emits join on the live socket (used after a rename)
-let wakeUp = null; // forces a reconnect/refresh when the device wakes
+let rejoin = null;
+let wakeUp = null;
 
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) wakeUp?.();
@@ -221,37 +213,29 @@ function escapeHtml(s) {
 }
 const PHASE_LABELS = {
   lobby: "gathering",
-  table: "cards out",
-  nominating: "nominations",
-  runoff: "runoff",
-  trial: "the trial",
-  verdict: "the vote",
-  results: "judgment",
-  reveal: "cards up",
+  prompt: "the prompt",
+  answering: "answers incoming",
+  voting: "the vote",
+  reveal: "the reveal",
 };
 
 // ── render ─────────────────────────────────────────────────────────────────
 
-const STAGES = ["stageLobby", "stageTable", "stageNoms", "stageTrial", "stageResults", "stageReveal"];
+const STAGES = ["stageLobby", "stagePrompt", "stageAnswering", "stageVoting", "stageReveal"];
 
 function render() {
   if (!latest) return;
   const s = latest;
   const phase = s.phase;
-  const myself = memberById(me.memberId);
-  const inRound = !!myself?.inRound;
-  const alive = inRound && myself.alive;
 
-  // a fresh deal → riffle the deck (not on first paint after a reload)
-  if (phase === "table" && renderedRound !== null && s.round !== renderedRound) {
-    runShuffle();
-  }
-
-  // reset local selections when the phase or round turns over
   if (phase !== renderedPhase || s.round !== renderedRound) {
-    nomSel = [];
     renderedPhase = phase;
     renderedRound = s.round;
+    // clear compose fields when the round or phase turns over
+    $("promptInput").value = "";
+    $("answerInput").value = "";
+    $("promptCount").textContent = "0";
+    $("answerCount").textContent = "0";
   }
 
   // phase banner
@@ -259,337 +243,260 @@ function render() {
   $("phaseLabel").dataset.phase = phase;
   const waitBits = [];
   if (s.round > 0) waitBits.push(`round ${s.round}`);
-  if (s.mafiaCount > 0) waitBits.push(`${s.mafiaCount} mafia dealt`);
-  if (phase === "nominating") waitBits.push(`${s.nomsIn}/${s.nomsTotal} accusations in`);
-  if (phase === "runoff") waitBits.push(`${s.runoff.picksIn}/${s.runoff.picksTotal} runoff picks in`);
-  if (phase === "verdict") waitBits.push(`${s.votesIn}/${s.votersTotal} votes in`);
+  if (phase === "voting") waitBits.push(`${s.votesIn}/${s.votersTotal} votes in`);
   $("waitLabel").textContent = waitBits.join(" · ");
 
   // settings
-  $("setSheriff").checked = !!s.settings.sheriffEnabled;
-  $("setAngel").checked = !!s.settings.angelEnabled;
+  $("setAiCount").value = s.aiCount;
+  $("setSlotHint").textContent = s.slotCount;
+  $("aiModeNote").textContent = s.hasAi
+    ? "live mode: answers are written by the machine from your prompt."
+    : "offline mode: no API key set, so decoy answers come from a canned pool (they won't match the prompt).";
 
-  // lobby-only controls: renames, house rules, and dropping players all
-  // settle once the first hand is dealt
+  // lobby-only controls
   $("renameBtn").classList.toggle("hidden", phase !== "lobby");
   $("settingsBtn").classList.toggle("hidden", !(me.isHost && phase === "lobby"));
   if (phase !== "lobby" && !$("settingsModal").classList.contains("hidden")) closeSettings();
+
+  // role banner
+  renderRoleNote(s);
+  $("stalledNote").classList.toggle("hidden", !s.stalled || !me.isHost);
 
   // stages
   for (const id of STAGES) hide($(id));
   const stage = {
     lobby: "stageLobby",
-    table: "stageTable",
-    nominating: "stageNoms",
-    runoff: "stageNoms",
-    trial: "stageTrial",
-    verdict: "stageTrial",
-    results: "stageResults",
+    prompt: "stagePrompt",
+    answering: "stageAnswering",
+    voting: "stageVoting",
     reveal: "stageReveal",
   }[phase];
   if (stage) show($(stage));
 
-  // my card (the mayor's K♠ for the host, face-down role for everyone else)
-  if (phase !== "lobby" && priv?.card) {
-    show($("myCardBox"));
-    paintCard("cardImg", "cardTitle", priv.card);
-  } else {
-    hide($("myCardBox"));
-  }
-
-  // the game calls itself when the cards decide it
-  if (s.winner) {
-    $("winnerText").textContent = s.winner === "town"
-      ? "☀️ every last mafia is in the ground. the town wins."
-      : "🔫 the mafia has the town outnumbered. nothing left to stop them - mafia wins.";
-    $("winnerActions").classList.toggle("hidden", !me.isHost || phase === "reveal");
-    show($("winnerBox"));
-  } else {
-    hide($("winnerBox"));
-  }
-
-  // mafia see their partners; the mayor hears when the angel holds the line
-  const notes = [];
-  if (inRound && priv?.partners?.length) {
-    notes.push(`🔫 Your partner${priv.partners.length === 1 ? "" : "s"} in crime: ${priv.partners.map(nameOf).join(", ")}.`);
-  }
-  if (me.isHost && priv?.mayorNote) notes.push(`🎩 ${priv.mayorNote}`);
-  $("privateNote").textContent = notes.join(" ");
-  $("privateNote").classList.toggle("hidden", notes.length === 0);
-
-  // the mayor's ledger: every hand, for their eyes only
-  if (me.isHost && priv?.allCards && phase !== "lobby") {
-    renderLedger(priv.allCards);
-    show($("ledgerBox"));
-  } else {
-    hide($("ledgerBox"));
-  }
-
-  let ghost = "";
-  if (!inRound && !me.isHost && phase !== "lobby") {
-    ghost = "you're watching this round from the bar. you'll be dealt in at the next shuffle.";
-  } else if (inRound && !alive) {
-    ghost = "☠ you're dead. enjoy the show - no pointing, no voting.";
-  }
-  $("ghostNote").textContent = ghost;
-  $("ghostNote").classList.toggle("hidden", !ghost);
-
-  // per-stage rendering
   if (phase === "lobby") renderLobbyStage(s);
-  if (phase === "table") renderTable(s);
-  if (phase === "nominating" || phase === "runoff") renderNoms(s, alive, phase);
-  if (phase === "trial" || phase === "verdict") renderTrial(s, alive, phase);
-  if (phase === "results") renderResults(s);
+  if (phase === "prompt") renderPrompt(s);
+  if (phase === "answering") renderAnswering(s);
+  if (phase === "voting") renderVoting(s);
   if (phase === "reveal") renderReveal(s);
 
   renderMembers(s, phase);
 }
 
-function renderLobbyStage(s) {
-  const players = s.members.length - 1; // the host plays the mayor, not a hand
-  let hint;
-  if (players < s.minPlayers) {
-    hint = `${players} player${players === 1 ? "" : "s"} at the table (plus the mayor) - need at least ${s.minPlayers} to deal.`;
-  } else if (s.isTest) {
-    hint = `${players} players at the table. deal, then run the game solo - the bots point and vote themselves.`;
+function renderRoleNote(s) {
+  const el = $("roleNote");
+  if (s.phase === "lobby" || s.phase === "reveal") { hide(el); return; }
+  const iAmOperator = s.promptMasterId === me.memberId;
+  const iAmImposter = !!priv?.isImposter;
+  let note = "";
+  if (iAmOperator) {
+    note = "🛰 you're the operator. write the prompt — you're on the town's side, so make it one an imposter can't fake.";
+  } else if (iAmImposter) {
+    note = "🎭 you're the imposter. blend in with the machine. don't get caught.";
+  } else if (priv?.role === "spectator") {
+    note = "👁 you joined mid-round — you're watching this one. you'll be dealt in next round.";
   } else {
-    hint = `${players} players at the table. share the link, then deal when everyone's seated.`;
+    note = "🔍 you're a detective. read the answers and vote for the one written by a human.";
+  }
+  el.textContent = note;
+  el.dataset.role = iAmOperator ? "operator" : iAmImposter ? "imposter" : priv?.role === "spectator" ? "spectator" : "voter";
+  show(el);
+}
+
+function renderLobbyStage(s) {
+  const n = s.members.length;
+  let hint;
+  if (n < s.minPlayers) {
+    hint = `${n} on the channel — need at least ${s.minPlayers} to play. share the link.`;
+  } else if (s.isTest) {
+    hint = `${n} on the channel. start the round, then run it solo — the bots write, answer, and vote themselves.`;
+  } else {
+    hint = `${n} on the channel. each round one of you is the operator, one is the secret imposter, and the rest hunt.`;
   }
   $("lobbyHint").textContent = hint;
-  // test tables get the bot-filler; it only shows for the mayor before the deal
   $("botRow").classList.toggle("hidden", !(s.isTest && me.isHost));
-  $("dealRow").classList.toggle("hidden", !me.isHost);
-  $("dealBtn").disabled = players < s.minPlayers || players > s.maxPlayers;
-  $("dealBtn").textContent = players > s.maxPlayers
-    ? `too many players (max ${s.maxPlayers})`
-    : "deal the cards";
+  $("startRow").classList.toggle("hidden", !me.isHost);
+  $("startBtn").disabled = n < s.minPlayers;
+  $("startBtn").textContent = n < s.minPlayers ? `need ${s.minPlayers}+ players` : "start the round";
 }
 
-function renderTable(s) {
-  $("tableLead").textContent = me.isHost
-    ? "cards are out. run the nights out loud - when the town wants blood, open nominations. the game runs until the mafia all hang, or nobody's left to stop them."
-    : "cards are out. keep yours close - the mayor runs the night from here.";
-  $("tableActions").classList.toggle("hidden", !me.isHost);
+function renderPrompt(s) {
+  const iAmOperator = s.promptMasterId === me.memberId;
+  $("promptLead").textContent = iAmOperator
+    ? "you're the operator. ask the machine a question — the imposter will try to answer it just like the machine does."
+    : `${nameOf(s.promptMasterId)} is the operator, composing a prompt for the machine…`;
+  $("promptCompose").classList.toggle("hidden", !iAmOperator);
 }
 
-function pickTile(m, selected, disabled) {
-  const b = document.createElement("button");
-  b.className = "pick-tile" + (selected ? " selected" : "");
-  b.disabled = disabled;
-  b.setAttribute("role", "option");
-  b.setAttribute("aria-selected", selected ? "true" : "false");
-  b.innerHTML = `<span class="pick-name">${escapeHtml(m.name)}</span>`;
-  return b;
-}
+function renderAnswering(s) {
+  $("answeringPrompt").textContent = s.prompt || "";
+  const iAmImposter = !!priv?.isImposter;
+  const iAmOperator = s.promptMasterId === me.memberId;
+  const planted = priv?.myAnswer != null;
 
-function renderNoms(s, alive, phase) {
-  const runoff = phase === "runoff";
-  const seats = runoff ? s.runoff.seats : 2;
-  const pool = s.members.filter((m) =>
-    runoff ? s.runoff.candidates.includes(m.id) : m.inRound && m.alive
-  );
-  // narrowed runoffs shrink the pool - drop any stale selections
-  nomSel = nomSel.filter((id) => pool.some((m) => m.id === id)).slice(0, seats);
+  $("answerCompose").classList.toggle("hidden", !(iAmImposter && !planted));
+  $("answerDone").classList.toggle("hidden", !(iAmImposter && planted));
 
-  if (runoff) {
-    $("nomHead").textContent = s.runoff.attempt > 1 ? "still deadlocked" : "dead heat for the gallows";
-    $("nomPrompt").innerHTML =
-      (s.runoff.attempt > 1 ? "nobody budged. " : "") +
-      `${s.runoff.candidates.length} tied for ${seats === 1 ? "the last poster" : "the posters"}. ` +
-      `point <b>${seats === 1 ? "one finger" : "two fingers"}</b> - among the tied only.` +
-      (s.runoff.attempt > 1 ? " tie again and the deck decides." : "");
+  const stillWaiting = s.aiPending || (iAmImposter ? false : true);
+  $("answeringSpinner").classList.toggle("hidden", !stillWaiting || (iAmImposter && !planted));
+
+  if (iAmImposter) {
+    $("answeringHead").textContent = planted ? "answer planted" : "your move, ghost";
+    $("answeringLead").textContent = planted
+      ? "waiting on the machine to finish its answers, then it goes to the vote."
+      : "write one answer to the prompt that could pass for the machine's. it gets shuffled in with the real ones.";
+    $("answeringSpinnerText").textContent = "the machine is composing the rest…";
   } else {
-    $("nomHead").textContent = "point two fingers";
-    $("nomPrompt").innerHTML = "nominate <b>two</b> players you don't trust. the two most-accused stand trial.";
+    $("answeringHead").textContent = "answers incoming";
+    $("answeringLead").textContent = iAmOperator
+      ? "the machine is writing its answers — and somewhere out there, so is the imposter."
+      : "the machine is writing its answers — and one of you is quietly writing a fake.";
+    $("answeringSpinnerText").textContent = s.aiPending
+      ? "the machine is composing…"
+      : "waiting on the last answer…";
   }
-  $("closeNomsBtn").textContent = runoff ? "close the runoff" : "close nominations";
-
-  const grid = $("nomGrid");
-  grid.innerHTML = "";
-  const locked = runoff ? !!priv?.runoffPick : !!priv?.nominated;
-
-  $("closeNomsRow").classList.toggle("hidden", !me.isHost);
-  if (!alive) { hide($("nomLock")); hide($("nomDone")); return; }
-
-  const chosen = locked ? (runoff ? priv.runoffPick : priv.nominated) : nomSel;
-  for (const m of pool) {
-    if (m.id === me.memberId) continue;
-    const isSel = chosen.includes(m.id);
-    const tile = pickTile(m, isSel, locked);
-    tile.addEventListener("click", () => {
-      if (nomSel.includes(m.id)) nomSel = nomSel.filter((x) => x !== m.id);
-      else if (nomSel.length < seats) nomSel = [...nomSel, m.id];
-      else nomSel = [...nomSel.slice(1), m.id];
-      render();
-    });
-    grid.appendChild(tile);
-  }
-  $("nomLock").classList.toggle("hidden", locked);
-  $("nomLock").disabled = nomSel.length !== seats;
-  $("nomDone").classList.toggle("hidden", !locked);
 }
 
-function renderTrial(s, alive, phase) {
-  const voting = phase === "verdict";
-  const box = $("posters");
-  box.innerHTML = "";
-  const iAmAccused = (s.accused || []).some((a) => a.id === me.memberId);
-  const canVote = voting && alive && !me.isHost && !iAmAccused;
+function renderVoting(s) {
+  $("votingPrompt").textContent = s.prompt || "";
+  const iAmImposter = !!priv?.isImposter;
+  const iAmOperator = s.promptMasterId === me.memberId;
+  const canVote = !iAmImposter && priv?.role !== "spectator";
+  const voted = priv?.myVote !== undefined;
 
-  for (const a of s.accused || []) {
-    const div = document.createElement("div");
-    div.className = "poster";
-    const votedThis = priv?.votedFor === a.id;
-    div.innerHTML = `
-      <span class="poster-wanted">WANTED</span>
-      <span class="poster-name">${escapeHtml(nameOf(a.id))}</span>
-      <span class="poster-sub">${a.count} finger${a.count === 1 ? "" : "s"} pointed</span>
+  $("votingLead").textContent = iAmImposter
+    ? "your answer is in the line-up. sit tight and hope they miss it."
+    : !canVote
+      ? "you're watching this round — no vote."
+      : voted
+        ? "vote locked. see if the others can spot the human too."
+        : "one of these was written by a human pretending to be the machine. tap the impostor.";
+
+  const box = $("slotList");
+  box.innerHTML = "";
+  for (const slot of s.slots || []) {
+    const el = document.createElement("div");
+    el.className = "slot";
+    const mine = priv?.myVote === slot.id;
+    if (mine) el.classList.add("mine");
+    el.innerHTML = `
+      <div class="slot-head"><span class="slot-tag">${slot.id}</span></div>
+      <div class="slot-text">${escapeHtml(slot.text)}</div>
     `;
-    if (voting && !me.isHost) {
+    if (canVote) {
       const btn = document.createElement("button");
-      btn.className = "btn btn-accent poster-vote" + (votedThis ? " voted" : "");
-      btn.textContent = votedThis ? "your vote ✓" : "guilty";
-      btn.disabled = !canVote || priv?.votedFor !== undefined;
+      btn.className = "btn slot-vote" + (mine ? " voted" : "");
+      btn.textContent = mine ? "your pick ✓" : "human ✋";
+      btn.disabled = voted;
       btn.addEventListener("click", () => {
-        socket.emit("vote", { accusedId: a.id }, (r) => { if (r?.error) alert(r.error); });
+        socket.emit("vote", { slotId: slot.id }, (r) => { if (r?.error) alert(r.error); });
       });
-      div.appendChild(btn);
+      el.appendChild(btn);
     }
-    box.appendChild(div);
+    box.appendChild(el);
   }
-
-  const drawnNote = s.drawnByLot ? "the runoff wouldn't break, so the deck drew the posters. " : "";
-  $("trialLead").textContent = drawnNote + (voting
-    ? (iAmAccused ? "the town votes on your fate. sit tight." : me.isHost ? "the vote is open. chase the stragglers, then close it." : "pick who hangs. choose well.")
-    : "each gives their speech. then the mayor calls the vote.");
-  $("callVoteRow").classList.toggle("hidden", !(me.isHost && !voting));
-  $("closeVoteRow").classList.toggle("hidden", !(me.isHost && voting));
-  $("voteDone").classList.toggle("hidden", !(voting && priv?.votedFor !== undefined));
-}
-
-function renderResults(s) {
-  const v = s.verdict;
-  if (!v) return;
-  const [a, b] = (s.accused || []).map((x) => x.id);
-
-  if (v.hung) {
-    $("resultsHead").textContent = "the jury hangs.";
-    $("resultsLead").textContent = "dead heat. talk it out - then the town votes again. same two on the posters.";
-  } else {
-    $("resultsHead").textContent = "the town has spoken.";
-    // the card stays face-down - the dead keep their secrets until the mayor
-    // flips the whole table
-    $("resultsLead").textContent = `${nameOf(v.condemnedId)} swings. whether the town chose well, only the mayor knows.`;
-  }
-
-  // everyone sees the counts; who voted for whom is the mayor's to keep
-  const box = $("tallyBox");
-  box.innerHTML = "";
-  const voters = {};
-  for (const [voter, target] of Object.entries(priv?.ballot || {})) {
-    (voters[target] = voters[target] || []).push(voter);
-  }
-  for (const id of [a, b].sort((x, y) => (v.counts[y] || 0) - (v.counts[x] || 0))) {
-    const row = document.createElement("div");
-    row.className = "tally-row" + (!v.hung && v.condemnedId === id ? " top" : "");
-    const voterLine = me.isHost
-      ? `<span class="tally-voters">${(voters[id] || []).map((x) => escapeHtml(nameOf(x))).join(", ")}</span>`
-      : "";
-    row.innerHTML = `
-      <span class="tally-name">${escapeHtml(nameOf(id))}</span>
-      <span class="tally-count">${v.counts[id] || 0} vote${(v.counts[id] || 0) === 1 ? "" : "s"}</span>
-      ${voterLine}
-    `;
-    box.appendChild(row);
-  }
-
-  $("resultsActions").classList.toggle("hidden", !me.isHost);
-  $("revoteBtn").classList.toggle("hidden", !v.hung);
-  // a hung jury revotes; moving on to the next day is the fallback
-  $("openNomsBtn2").classList.toggle("btn-accent", !v.hung);
-  $("openNomsBtn2").classList.toggle("btn-secondary", v.hung);
+  $("voteDone").classList.toggle("hidden", !(canVote && voted));
+  $("closeVoteRow").classList.toggle("hidden", !(me.isHost && s.votesIn > 0));
 }
 
 function renderReveal(s) {
-  const all = $("allCards");
-  all.innerHTML = "";
-  for (const [id, card] of Object.entries(s.allCards || {})) {
-    all.appendChild(miniCard(id, card));
+  const rv = s.reveal;
+  $("revealPrompt").textContent = s.prompt || "";
+  if (!rv) return;
+
+  const iWasImposter = rv.imposterId === me.memberId;
+  const myVote = priv?.myVote;
+  const gotIt = myVote === rv.humanSlotId;
+
+  $("revealHead").textContent = "the human was " + rv.humanSlotId;
+  let lead = `${escapeHtml(nameOf(rv.imposterId))} was the imposter. `;
+  lead += `${rv.caught} of ${rv.votersTotal} spotted them; ${rv.fooled} got fooled.`;
+  if (iWasImposter) {
+    lead += rv.fooled > 0 ? ` you fooled ${rv.fooled} — +${rv.fooled} to you.` : " nobody bit. tough crowd.";
+  } else if (priv?.role !== "spectator" && myVote !== undefined) {
+    lead += gotIt ? " you nailed it — +1." : " you got fooled.";
   }
+  $("revealLead").textContent = lead;
+
+  // who voted for each slot
+  const votersBySlot = {};
+  for (const [voter, slotId] of Object.entries(rv.votes || {})) {
+    (votersBySlot[slotId] = votersBySlot[slotId] || []).push(voter);
+  }
+
+  const box = $("revealList");
+  box.innerHTML = "";
+  for (const slot of s.slots || []) {
+    const el = document.createElement("div");
+    el.className = "slot reveal-slot" + (slot.isHuman ? " human" : "");
+    if (priv?.myVote === slot.id) el.classList.add("mine");
+    const count = rv.tally[slot.id] || 0;
+    const voters = (votersBySlot[slot.id] || []).map((v) => escapeHtml(nameOf(v))).join(", ");
+    el.innerHTML = `
+      <div class="slot-head">
+        <span class="slot-tag">${slot.id}</span>
+        ${slot.isHuman ? '<span class="badge human-badge">🎭 human</span>' : '<span class="badge ai-badge">machine</span>'}
+        <span class="slot-count">${count} vote${count === 1 ? "" : "s"}</span>
+      </div>
+      <div class="slot-text">${escapeHtml(slot.text)}</div>
+      ${voters ? `<div class="slot-voters">${voters}</div>` : ""}
+    `;
+    box.appendChild(el);
+  }
+
+  renderScoreboard(s);
   $("nextRow").classList.toggle("hidden", !me.isHost);
 }
 
-function miniCard(id, card) {
-  const div = document.createElement("div");
-  div.className = "mini-card" + (card.role === "mafia" ? " mafia" : "");
-  div.innerHTML = `
-    <img src="/cards/${card.code}.svg" alt="${card.rank}${card.suit}" draggable="false" />
-    <span class="mini-name">${escapeHtml(nameOf(id))}</span>
-    <span class="mini-title">${escapeHtml(card.title)}</span>
-  `;
-  return div;
-}
-
-function renderLedger(allCards) {
-  const box = $("ledgerCards");
-  box.innerHTML = "";
-  for (const [id, card] of Object.entries(allCards)) {
-    const div = miniCard(id, card);
-    const m = memberById(id);
-    if (m && m.inRound && !m.alive) div.classList.add("dead-hand");
-    box.appendChild(div);
+function renderScoreboard(s) {
+  const box = $("scoreboard");
+  box.innerHTML = `<h3 class="score-head">scores</h3>`;
+  const list = document.createElement("div");
+  list.className = "score-list";
+  const top = (s.scoreboard || [])[0]?.score || 0;
+  for (const row of s.scoreboard || []) {
+    const el = document.createElement("div");
+    el.className = "score-row" + (row.score > 0 && row.score === top ? " leader" : "");
+    el.innerHTML = `
+      <span class="score-name">${escapeHtml(row.name)}${row.id === me.memberId ? ' <span class="you-tag">you</span>' : ""}</span>
+      <span class="score-val">${row.score}</span>
+    `;
+    list.appendChild(el);
   }
-}
-
-function paintCard(imgId, titleId, card) {
-  $(imgId).src = `/cards/${card.code}.svg`;
-  $(titleId).textContent = card.title;
-  $(titleId).dataset.role = card.role;
-}
-
-let shuffleTimer = null;
-function runShuffle() {
-  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-  const el = $("shuffleOverlay");
-  clearTimeout(shuffleTimer);
-  el.classList.remove("hidden", "run");
-  void el.offsetWidth; // restart the animation
-  el.classList.add("run");
-  shuffleTimer = setTimeout(() => el.classList.add("hidden"), 1500);
+  box.appendChild(list);
 }
 
 function renderMembers(s, phase) {
   const ul = $("members");
   ul.innerHTML = "";
-  const showStatus = ["nominating", "runoff", "verdict"].includes(phase);
+  const showVoteStatus = phase === "voting";
   for (const m of s.members) {
     const li = document.createElement("li");
-    const dead = m.inRound && !m.alive;
-    if (dead) li.classList.add("dead");
-    if (showStatus && m.acted && m.alive && m.inRound) li.classList.add("acted");
+    const spectating = !m.inRound && phase !== "lobby";
+    if (spectating) li.classList.add("spectating");
+    if (showVoteStatus && m.acted && m.inRound && m.id !== s.promptMasterId) li.classList.add("acted");
     const tags = [];
     if (m.id === me.memberId) tags.push(`<span class="you-tag">you</span>`);
-    if (m.isHost) tags.push(`<span class="mayor-tag">🎩 mayor</span>`);
-    if (m.isBot) tags.push(`<span class="bot-tag">🤖 bot</span>`);
+    if (m.isHost) tags.push(`<span class="host-tag">🛰 op</span>`);
+    if (m.isBot) tags.push(`<span class="bot-tag">🤖</span>`);
+    // the operator is public; the imposter never is
+    if (phase !== "lobby" && m.id === s.promptMasterId) tags.push(`<span class="op-tag">operator</span>`);
+
     let status = "";
-    if (phase !== "lobby" && !m.inRound && !m.isHost) status = "at the bar";
-    else if (dead) status = "☠ dead";
-    else if (showStatus && m.inRound) status = m.acted ? "done ✓" : "deciding…";
-    li.innerHTML = `
-      <div class="m-name">${escapeHtml(m.name)} ${tags.join(" ")}</div>
-      <div class="m-status">${status}</div>
-    `;
-    if (me.isHost && phase !== "lobby" && m.inRound) {
-      const sk = document.createElement("button");
-      sk.className = "skull-btn";
-      sk.textContent = m.alive ? "☠" : "↺";
-      sk.title = m.alive ? `mark ${m.name} dead` : `revive ${m.name}`;
-      sk.setAttribute("aria-label", sk.title);
-      sk.addEventListener("click", () => {
-        emitSimple("setAlive")({ memberId: m.id, alive: !m.alive });
-      });
-      li.appendChild(sk);
+    if (phase === "lobby") status = "";
+    else if (spectating) status = "watching";
+    else if (m.id === s.promptMasterId && phase === "prompt") status = "writing…";
+    else if (showVoteStatus && m.id !== s.promptMasterId && m.inRound) {
+      // don't out the imposter: everyone still shows a normal voting status
+      status = m.acted ? "voted ✓" : "deciding…";
     }
+
+    li.innerHTML = `
+      <div class="m-main">
+        <span class="m-name">${escapeHtml(m.name)} ${tags.join(" ")}</span>
+        <span class="m-status">${status}</span>
+      </div>
+      <span class="m-score" title="score">${m.score}</span>
+    `;
     if (me.isHost && !m.isHost && phase === "lobby") {
       const x = document.createElement("button");
       x.className = "drop-btn";
@@ -597,7 +504,7 @@ function renderMembers(s, phase) {
       x.setAttribute("aria-label", `drop ${m.name}`);
       x.textContent = "✕";
       x.addEventListener("click", () => {
-        if (confirm(`show ${m.name} the door?`)) {
+        if (confirm(`remove ${m.name}?`)) {
           emitSimple("dropMember")({ memberId: m.id });
         }
       });
@@ -611,12 +518,10 @@ function renderMembers(s, phase) {
 
 $("create").addEventListener("click", createRoom);
 $("join").addEventListener("click", () => joinRoom());
-// a table code in the field means you're joining, not hosting - covers
-// typing, paste, autofill, and values the browser restores on back/reload
 function syncCreate() {
   const joining = $("joinCode").value.trim().length > 0;
   $("create").disabled = joining;
-  $("create").textContent = joining ? "clear the code to host" : "open the saloon";
+  $("create").textContent = joining ? "clear the code to host" : "open a channel";
 }
 $("joinCode").addEventListener("input", syncCreate);
 window.addEventListener("pageshow", syncCreate);
@@ -626,21 +531,20 @@ window.addEventListener("hashchange", applyHashMode);
 $("leaveBtn").addEventListener("click", () => {
   if (!me.roomId) return;
   const midGame = latest && latest.phase !== "lobby" && !me.isHost;
-  if (midGame && !confirm("walk out mid-game? your seat empties for good.")) return;
+  if (midGame && !confirm("leave mid-round?")) return;
   if (!me.isHost) {
     socket?.emit("leave", {}, () => {});
-    // forget the seat; the name sticks around for next time
     store.set(me.roomId, { name: (store.get(me.roomId) || {}).name });
   }
   exitToLobby();
 });
 
 $("renameBtn").addEventListener("click", () => {
-  const n = (prompt("your name", me.name) || "").trim().slice(0, 40);
+  const n = (prompt("your handle", me.name) || "").trim().slice(0, 40);
   if (!n || n === me.name) return;
   me.name = n;
   store.set(me.roomId, { ...(store.get(me.roomId) || {}), name: n });
-  $("youAre").textContent = `you: ${n}${me.isHost ? " (mayor)" : ""}`;
+  $("youAre").textContent = `you: ${n}${me.isHost ? " (operator)" : ""}`;
   rejoin?.();
 });
 
@@ -648,58 +552,39 @@ const emitSimple = (event) => (payload = {}) =>
   socket.emit(event, payload, (r) => { if (r?.error) alert(r.error); });
 
 $("addBotsBtn").addEventListener("click", () => {
-  const count = Math.max(1, Math.min(20, parseInt($("botCount").value, 10) || 1));
+  const count = Math.max(1, Math.min(12, parseInt($("botCount").value, 10) || 1));
   emitSimple("addBots")({ count });
 });
-$("dealBtn").addEventListener("click", () => emitSimple("deal")());
-$("redealBtn").addEventListener("click", () => emitSimple("deal")());
-$("nextBtn").addEventListener("click", () => emitSimple("deal")());
-$("openNomsBtn").addEventListener("click", () => emitSimple("openNominations")());
-$("openNomsBtn2").addEventListener("click", () => emitSimple("openNominations")());
-$("closeNomsBtn").addEventListener("click", () =>
-  emitSimple(latest?.phase === "runoff" ? "closeRunoff" : "closeNominations")());
-$("callVoteBtn").addEventListener("click", () => emitSimple("callVote")());
-$("revoteBtn").addEventListener("click", () => emitSimple("revote")());
-$("closeVoteBtn").addEventListener("click", () => emitSimple("closeVote")());
-$("revealBtn").addEventListener("click", () => emitSimple("reveal")());
-$("revealBtn2").addEventListener("click", () => emitSimple("reveal")());
-$("revealBtn3").addEventListener("click", () => emitSimple("reveal")());
+$("startBtn").addEventListener("click", () => emitSimple("startRound")());
+$("nextBtn").addEventListener("click", () => emitSimple("startRound")());
+$("closeVoteBtn").addEventListener("click", () => emitSimple("closeVoting")());
 
-$("nomLock").addEventListener("click", () => {
-  if (latest?.phase === "runoff") {
-    if (nomSel.length !== latest.runoff.seats) return;
-    emitSimple("runoffPick")({ picks: nomSel });
-  } else {
-    if (nomSel.length !== 2) return;
-    emitSimple("nominate")({ picks: nomSel });
-  }
+// prompt compose
+$("promptInput").addEventListener("input", () => {
+  $("promptCount").textContent = String($("promptInput").value.length);
+});
+$("promptSend").addEventListener("click", () => {
+  const prompt = $("promptInput").value.trim();
+  if (prompt.length < 3) { alert("give me a real prompt"); return; }
+  $("promptSend").disabled = true;
+  socket.emit("submitPrompt", { prompt }, (r) => {
+    $("promptSend").disabled = false;
+    if (r?.error) alert(r.error);
+  });
 });
 
-// hold-to-peek on your card - the role text only shows while held,
-// so a glance at someone else's idle screen gives nothing away
-const myCard = $("myCard");
-const peek = (on) => {
-  myCard.classList.toggle("peek", on);
-  $("cardBlurbSlot").textContent =
-    on && priv?.card ? priv.card.blurb : "keep it close to your chest";
-};
-myCard.addEventListener("pointerdown", (e) => { e.preventDefault(); peek(true); });
-for (const ev of ["pointerup", "pointerleave", "pointercancel"]) {
-  myCard.addEventListener(ev, () => peek(false));
-}
-myCard.addEventListener("contextmenu", (e) => e.preventDefault());
-myCard.addEventListener("keydown", (e) => {
-  if (e.key === " " || e.key === "Enter") { e.preventDefault(); peek(true); }
+// answer compose
+$("answerInput").addEventListener("input", () => {
+  $("answerCount").textContent = String($("answerInput").value.length);
 });
-myCard.addEventListener("keyup", (e) => {
-  if (e.key === " " || e.key === "Enter") peek(false);
-});
-
-// the ledger folds shut so a player glancing at the mayor's phone sees nothing
-$("ledgerToggle").addEventListener("click", () => {
-  $("ledgerCards").classList.toggle("hidden");
-  const open = !$("ledgerCards").classList.contains("hidden");
-  $("ledgerToggle").textContent = open ? "🎩 mayor's ledger - tap to hide" : "🎩 mayor's ledger - tap to peek";
+$("answerSend").addEventListener("click", () => {
+  const answer = $("answerInput").value.trim();
+  if (answer.length < 3) { alert("write a real answer"); return; }
+  $("answerSend").disabled = true;
+  socket.emit("submitAnswer", { answer }, (r) => {
+    $("answerSend").disabled = false;
+    if (r?.error) alert(r.error);
+  });
 });
 
 // settings modal
@@ -720,18 +605,12 @@ $("settingsModal").addEventListener("click", (e) => {
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && !$("settingsModal").classList.contains("hidden")) closeSettings();
 });
-
-function emitSettings() {
-  socket.emit("settings", {
-    settings: {
-      sheriffEnabled: $("setSheriff").checked,
-      angelEnabled: $("setAngel").checked,
-    },
-  });
-}
-for (const id of ["setSheriff", "setAngel"]) {
-  $(id).addEventListener("change", emitSettings);
-}
+$("setAiCount").addEventListener("change", () => {
+  const aiCount = Math.max(2, Math.min(6, parseInt($("setAiCount").value, 10) || 4));
+  $("setAiCount").value = aiCount;
+  $("setSlotHint").textContent = aiCount + 1;
+  socket.emit("settings", { settings: { aiCount } });
+});
 
 $("copyLink").addEventListener("click", async () => {
   const url = `${location.origin}/#${me.roomId}`;
@@ -743,19 +622,3 @@ $("copyLink").addEventListener("click", async () => {
 });
 
 applyHashMode();
-
-// raise the curtain on arrival - once per visit, skipped on plain refreshes
-(function raiseCurtains() {
-  const el = $("curtains");
-  let seen = false;
-  try {
-    seen = !!sessionStorage.getItem("mafia:curtains");
-    sessionStorage.setItem("mafia:curtains", "1");
-  } catch {}
-  if (seen || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-    el.remove();
-    return;
-  }
-  setTimeout(() => el.classList.add("open"), 500);
-  setTimeout(() => el.remove(), 2700);
-})();

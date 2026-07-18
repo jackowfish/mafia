@@ -1,68 +1,66 @@
-# mafia
+# imposter
 
-A card dealer and ballot box for in-person mafia. The app shuffles the deck, hands everyone a secret card, and runs the daily trial - everything else (nights, kills, saves, speeches) happens out loud at the table. The game runs until the mafia are the last ones standing or they've all been hanged.
+A party game where one of you pretends to be an AI. The **operator** sends a prompt to the machine and gets back a line-up of answers - all but one written by Claude. The odd one out is the **imposter**, a player trying to sound like the machine. Everyone else reads the answers and votes on which one has a pulse.
 
-## The deck
-
-Real playing cards (SVGs from [me.uk/cards](https://www.me.uk/cards/), CC0, tinted to match the app). The important roles are always face cards; townsfolk get number cards:
-
-| card | position |
-| --- | --- |
-| A♠ A♣ A♦ | The Mafia - they know each other |
-| A♥ | The Angel |
-| K♥ | The Sheriff |
-| K♠ | The Mayor - always the host, never shuffled in |
-| 2-10, any suit | Townsperson |
-
-The black aces come out one at a time as the table grows: 1 mafia at 4-8 players, 2 at 9-12, 3 at 13+. The host holds the Mayor card, runs the table, and controls the deal and the votes - they're never dealt a playing role. The mayor also gets a private ledger of every hand, so they can referee the nights.
+Real-time and phone-friendly: open a channel, share the link, and play across the room.
 
 ## A round
 
-1. Host deals. Every player gets a card - hold it to peek. Mafia see their partners on screen.
-2. The mayor narrates the nights out loud, old-school, and marks night kills with the ☠ button (undo with ↺). The dead can't point fingers or vote, and no phase waits on them - but nobody sees their card.
-3. When the town wants blood, the mayor opens nominations: the living point two fingers, and the two most-accused stand trial. A tie for a trial spot goes to a runoff among the tied - never to chance.
-4. Speeches out loud, then the mayor calls the vote. Every living player but the accused votes on who hangs.
-5. The verdict names the hanged (they're marked dead automatically) and the vote counts - but never their card, and never who voted for whom. The full ballot and every hand are the mayor's alone. Ties hang the jury: the town talks it out and revotes on the same two.
-6. The app calls the game itself: town wins when the last mafia falls; mafia wins when they have the numbers (they control every vote and every night). One wrinkle - at parity with the Angel still alive the game isn't over, and only the mayor is told why, since saying so would out the Angel.
-7. When it's called, the mayor flips every card face-up, then shuffles up the next round.
+1. **Roles.** Each round the app secretly picks one **operator** (public - they write the prompt) and one **imposter** (secret - they fake an answer). Everyone else are **detectives**. Roles rotate every round.
+2. **The prompt.** The operator asks the machine a question - ideally one an imposter can't easily fake.
+3. **The answers.** The machine (Claude) writes several answers to the prompt. At the same time, the imposter writes one answer of their own, trying to blend in. All the answers are shuffled into a lettered line-up.
+4. **The vote.** Every detective reads the line-up and votes for the answer they think a human wrote. The imposter sits it out.
+5. **The reveal.** The human answer is unmasked, the imposter is named, and the votes are tallied. Detectives who caught the imposter score a point each; the imposter scores a point for everyone they fooled. Running scores carry across rounds.
 
-4+ players plus the mayor. Rooms expire after 24h idle.
+3+ players. Channels expire after 24h idle.
+
+## The machine
+
+With an `ANTHROPIC_API_KEY` set, the decoy answers are written live by Claude (`claude-opus-4-8` by default) from the operator's prompt. Without a key, the game falls back to a canned pool of generic AI-sounding lines so it still runs offline (they won't match the prompt, so it's easier - handy for local testing).
 
 ## Run
 
 ```
-docker build -t mafia .
-docker run --rm -p 3000:3000 mafia
+docker build -t imposter .
+docker run --rm -p 3000:3000 -e ANTHROPIC_API_KEY=sk-ant-... imposter
 ```
 
-Open http://localhost:3000.
+Open http://localhost:3000. (Omit the key to run in offline/fallback mode.)
+
+Locally without Docker:
+
+```
+npm install
+ANTHROPIC_API_KEY=sk-ant-... npm start
+```
+
+This needs a Redis on `127.0.0.1:6379` (the Docker image bundles one; `start.sh` boots it automatically).
 
 ## Config
 
 | env | default | what |
 | --- | --- | --- |
 | `PORT` | `3000` | HTTP port |
+| `ANTHROPIC_API_KEY` | _(unset)_ | Anthropic key. Unset → offline fallback pool. |
+| `ANTHROPIC_MODEL` | `claude-opus-4-8` | Model that writes the decoy answers. |
 | `REDIS_URL` | `redis://127.0.0.1:6379` | Redis connection string. If unset or pointing at localhost, an in-container Redis is started; otherwise the bundled one stays off. |
-| `TEST_PIN` | `SPEAKEASY` | Pin that opens a hidden solo test table (see below). Set to `""` to disable. |
+| `TEST_PIN` | `GHOST` | Pin that opens a hidden solo test table (see below). Set to `""` to disable. |
 
 ## Deploy (HA)
 
-Point `REDIS_URL` at a shared Redis (any non-localhost host) and run as many replicas as you like - Socket.IO uses the Redis adapter so rooms and events are shared across instances.
+Point `REDIS_URL` at a shared Redis (any non-localhost host) and run as many replicas as you like - Socket.IO uses the Redis adapter so channels and events are shared across instances.
 
-## House rules (host settings)
+## Setup (host settings)
 
-- deal the Sheriff (K♥)
-- deal the Angel (A♥)
+- **machine answers per round** (2-6, default 4). The imposter's answer is shuffled in among these, so 3-7 answers go up for the vote.
 
 ## Test games (solo)
 
-There's a hidden back room for trying the app out alone. It's not shown anywhere in the lobby - to open it, type the **test pin** into the `TABLE CODE` box (with a name filled in) and hit *sit down*. The pin lives on the server (`TEST_PIN`, default `SPEAKEASY`), never in the client bundle, so a normal player sees no sign the mode exists. A wrong guess just falls through to an ordinary join.
+There's a hidden back room for trying the app out alone. It's not shown anywhere in the lobby - to open it, type the **test pin** into the `CHANNEL CODE` box (with a handle filled in) and hit *connect*. The pin lives on the server (`TEST_PIN`, default `GHOST`), never in the client bundle, so a normal player sees no sign the mode exists. A wrong guess just falls through to an ordinary join.
 
 Test tables:
 
-- get a `TEST-XXXX` code and live in their own Redis namespace (`testroom:*`), so they never collide with or show up alongside real tables.
-- let the host seat **auto-playing bots** ("add bots" in the lobby) to fill the seats. Bots are dealt in like any player, then point and vote themselves - the moment the mayor opens nominations they resolve to a trial, and a called vote resolves to a verdict. One person can run a whole game start to finish, no second device needed.
-
-Everything else is a normal game: mark night kills, open nominations, call the vote, reveal.
+- get a `TEST-XXXX` code and live in their own Redis namespace (`testroom:*`), so they never collide with or show up alongside real channels.
+- let the host seat **auto-playing bots** ("add bots" in the lobby). A bot operator writes a canned prompt, a bot imposter writes a canned answer, and bot detectives vote at random - so one person can run a whole game start to finish, no second device needed.
 
 Set `TEST_PIN` to change the pin, or `TEST_PIN=""` to disable test tables entirely.

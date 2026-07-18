@@ -5,49 +5,43 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="apple-mobile-web-app-title" content="mafia" />
-  <meta name="theme-color" content="#17110b" />
-  <title>MAFIA</title>
+  <meta name="apple-mobile-web-app-title" content="imposter" />
+  <meta name="theme-color" content="#05080a" />
+  <title>IMPOSTER</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Rye&family=Special+Elite&family=Crimson+Pro:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=VT323&family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/tokens.css" />
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
   <div class="bg" aria-hidden="true">
-    <div class="lamp lamp-a"></div>
-    <div class="lamp lamp-b"></div>
-  </div>
-
-  <!-- the curtains part on arrival -->
-  <div id="curtains" class="curtains" aria-hidden="true">
-    <div class="curtain curtain-l"></div>
-    <div class="curtain curtain-r"></div>
-    <div class="valance"></div>
+    <div class="scanlines"></div>
+    <div class="glow glow-a"></div>
+    <div class="glow glow-b"></div>
   </div>
 
   <main id="app">
     <!-- ═══════════ lobby ═══════════ -->
     <section id="lobby" class="card">
-      <p class="est">est. tonight · pop. dwindling</p>
-      <h1 class="title">MAFIA</h1>
-      <p class="tagline" id="lobbyTagline">a saloon full of liars. one of them is armed.</p>
+      <p class="est">// terminal session · one of you is not a machine</p>
+      <h1 class="title" data-text="IMPOSTER">IMPOSTER</h1>
+      <p class="tagline" id="lobbyTagline">five answers come back. one of them has a pulse.</p>
       <p class="join-banner hidden" id="joinBanner">
-        pull up a stool at table <code id="joinBannerCode"></code>
+        joining channel <code id="joinBannerCode"></code>
       </p>
 
       <label class="field">
-        <span>your name</span>
-        <input id="name" placeholder="jack" maxlength="40" autocomplete="off" />
+        <span>handle</span>
+        <input id="name" placeholder="you" maxlength="40" autocomplete="off" />
       </label>
 
       <div class="row">
-        <input id="joinCode" placeholder="TABLE CODE" maxlength="12" class="code-input" autocomplete="off" />
-        <button id="join" class="btn btn-secondary">sit down</button>
+        <input id="joinCode" placeholder="CHANNEL CODE" maxlength="12" class="code-input" autocomplete="off" />
+        <button id="join" class="btn btn-secondary">connect</button>
       </div>
       <div class="divider"><span>or</span></div>
-      <button id="create" class="btn btn-primary btn-big">open the saloon</button>
+      <button id="create" class="btn btn-primary btn-big">open a channel</button>
 
       <p id="lobbyErr" class="err" role="alert"></p>
     </section>
@@ -56,15 +50,15 @@
     <section id="room" class="card hidden">
       <header class="room-header">
         <div class="room-code-box">
-          <span class="label">table</span>
+          <span class="label">channel</span>
           <code id="roomId">----</code>
           <button id="copyLink" class="link">copy link</button>
         </div>
         <div class="right">
           <span id="youAre" class="muted"></span>
-          <button id="renameBtn" class="link hidden">✏ name</button>
-          <button id="settingsBtn" class="link hidden">⚙ house rules</button>
-          <button id="leaveBtn" class="link">↩ leave</button>
+          <button id="renameBtn" class="link hidden">✎ handle</button>
+          <button id="settingsBtn" class="link hidden">⚙ setup</button>
+          <button id="leaveBtn" class="link">⏻ leave</button>
         </div>
       </header>
 
@@ -72,12 +66,15 @@
         <div class="modal-backdrop" data-close></div>
         <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
           <div class="modal-head">
-            <h3 id="settingsTitle">house rules</h3>
+            <h3 id="settingsTitle">setup</h3>
             <button class="modal-close" data-close aria-label="close">✕</button>
           </div>
-          <label class="toggle"><input type="checkbox" id="setSheriff" /><span>deal the Sheriff (K♥) - investigates one player each night</span></label>
-          <label class="toggle"><input type="checkbox" id="setAngel" /><span>deal the Angel (A♥) - watches over one player each night</span></label>
-          <p class="muted small">the host holds the Mayor (K♠) and runs the table. rule changes take effect at the next deal.</p>
+          <label class="field">
+            <span>machine answers per round</span>
+            <input id="setAiCount" type="number" min="2" max="6" value="4" inputmode="numeric" />
+          </label>
+          <p class="muted small">the imposter's answer is shuffled in among these, so <b id="setSlotHint">5</b> answers go up for the vote. changes apply at the next round.</p>
+          <p class="muted small" id="aiModeNote"></p>
           <button class="btn btn-secondary modal-done" data-close>done</button>
         </div>
       </div>
@@ -87,125 +84,81 @@
         <span id="waitLabel" class="counts"></span>
       </div>
 
-      <p id="connNote" class="conn-note hidden">🔌 lost the table - reconnecting…</p>
+      <p id="connNote" class="conn-note hidden">◌ lost the channel — reconnecting…</p>
 
-      <!-- your card: face-down, hold to peek -->
-      <div id="myCardBox" class="my-card-box hidden">
-        <button id="myCard" class="playing-card" aria-label="your card - hold to peek">
-          <span class="card-inner">
-            <span class="card-back"><img src="/cards/back.svg" alt="" draggable="false" /></span>
-            <span class="card-face">
-              <img id="cardImg" src="/cards/back.svg" alt="" draggable="false" />
-              <span class="card-plate" id="cardTitle"></span>
-            </span>
-          </span>
-        </button>
-        <p class="hold-hint">hold the card to peek - <span id="cardBlurbSlot">keep it close to your chest</span></p>
-      </div>
+      <p id="roleNote" class="role-note hidden"></p>
+      <p id="stalledNote" class="stalled-note hidden">someone essential dropped out mid-round. the operator can deal a fresh one.</p>
 
-      <!-- the deal: brief riffle of card backs -->
-      <div id="shuffleOverlay" class="shuffle-overlay hidden" aria-hidden="true">
-        <img class="shuf s1" src="/cards/back.svg" alt="" />
-        <img class="shuf s2" src="/cards/back.svg" alt="" />
-        <img class="shuf s3" src="/cards/back.svg" alt="" />
-        <img class="shuf s4" src="/cards/back.svg" alt="" />
-        <img class="shuf s5" src="/cards/back.svg" alt="" />
-      </div>
-
-      <!-- the app calls the game when the cards decide it -->
-      <div id="winnerBox" class="winner-box hidden">
-        <p id="winnerText"></p>
-        <div class="host-actions hidden" id="winnerActions">
-          <button id="revealBtn3" class="btn btn-accent">flip everyone's cards</button>
-        </div>
-      </div>
-
-      <p id="privateNote" class="private-note hidden"></p>
-
-      <!-- the mayor's ledger: every hand, their eyes only -->
-      <div id="ledgerBox" class="ledger hidden">
-        <button id="ledgerToggle" class="link">🎩 mayor's ledger - tap to peek</button>
-        <div id="ledgerCards" class="all-cards ledger-cards hidden"></div>
-      </div>
-
-      <p id="ghostNote" class="ghost-note hidden"></p>
-
-      <!-- ─── waiting for the deal ─── -->
+      <!-- ─── waiting for the round ─── -->
       <div id="stageLobby" class="stage hidden">
         <p class="stage-lead" id="lobbyHint"></p>
-        <!-- test tables only: fill the seats with auto-playing bots -->
         <div class="bot-row hidden" id="botRow">
           <span class="bot-row-label">🧪 test players</span>
-          <input id="botCount" class="bot-count" type="number" min="1" max="20" value="5"
+          <input id="botCount" class="bot-count" type="number" min="1" max="12" value="4"
                  inputmode="numeric" aria-label="how many test players to add" />
           <button id="addBotsBtn" class="btn btn-secondary">add bots</button>
         </div>
-        <div class="host-actions hidden" id="dealRow">
-          <button id="dealBtn" class="btn btn-accent btn-big">deal the cards</button>
+        <div class="host-actions hidden" id="startRow">
+          <button id="startBtn" class="btn btn-accent btn-big">start the round</button>
         </div>
       </div>
 
-      <!-- ─── cards out, table talk ─── -->
-      <div id="stageTable" class="stage hidden">
-        <h2 class="stage-head">the cards are dealt</h2>
-        <p class="stage-lead" id="tableLead"></p>
-        <div class="host-actions hidden" id="tableActions">
-          <button id="openNomsBtn" class="btn btn-accent btn-big">open nominations</button>
-          <button id="revealBtn" class="link">flip everyone's cards</button>
-          <button id="redealBtn" class="link">shuffle &amp; redeal</button>
+      <!-- ─── the operator writes a prompt ─── -->
+      <div id="stagePrompt" class="stage hidden">
+        <h2 class="stage-head">the prompt</h2>
+        <p class="stage-lead" id="promptLead"></p>
+        <div id="promptCompose" class="compose hidden">
+          <textarea id="promptInput" maxlength="240" rows="3" placeholder="ask the machine anything…"></textarea>
+          <div class="compose-foot">
+            <span class="ch-count"><span id="promptCount">0</span>/240</span>
+            <button id="promptSend" class="btn btn-accent">send it to the machine</button>
+          </div>
         </div>
       </div>
 
-      <!-- ─── nominations (and runoffs when the cut is tied) ─── -->
-      <div id="stageNoms" class="stage hidden">
-        <h2 class="stage-head" id="nomHead">point two fingers</h2>
-        <p class="stage-lead" id="nomPrompt"></p>
-        <div id="nomGrid" class="pick-grid" role="listbox" aria-label="nominate two players"></div>
-        <div class="row center">
-          <button id="nomLock" class="btn btn-primary btn-big" disabled>lock them in</button>
+      <!-- ─── answers incoming ─── -->
+      <div id="stageAnswering" class="stage hidden">
+        <div class="prompt-quote" id="answeringPrompt"></div>
+        <h2 class="stage-head" id="answeringHead">answers incoming</h2>
+        <p class="stage-lead" id="answeringLead"></p>
+        <div id="answerCompose" class="compose hidden">
+          <textarea id="answerInput" maxlength="240" rows="3" placeholder="answer like a machine would…"></textarea>
+          <div class="compose-foot">
+            <span class="ch-count"><span id="answerCount">0</span>/240</span>
+            <button id="answerSend" class="btn btn-accent">plant your answer</button>
+          </div>
         </div>
-        <p id="nomDone" class="done-note hidden">your accusations are in.</p>
-        <div class="host-actions hidden" id="closeNomsRow">
-          <button id="closeNomsBtn" class="btn btn-accent btn-big">close nominations</button>
+        <div id="answerDone" class="done-note hidden">your answer is planted. now hide in the crowd.</div>
+        <div id="answeringSpinner" class="spinner-row hidden">
+          <span class="cursor-blink">▋</span> <span id="answeringSpinnerText">the machine is composing…</span>
         </div>
       </div>
 
-      <!-- ─── trial & vote ─── -->
-      <div id="stageTrial" class="stage hidden">
-        <h2 class="stage-head">the accused stand</h2>
-        <p class="stage-lead" id="trialLead"></p>
-        <div id="posters" class="posters"></div>
-        <div class="host-actions hidden" id="callVoteRow">
-          <button id="callVoteBtn" class="btn btn-accent btn-big">call the vote</button>
-        </div>
-        <p id="voteDone" class="done-note hidden">your vote is cast.</p>
+      <!-- ─── the vote ─── -->
+      <div id="stageVoting" class="stage hidden">
+        <div class="prompt-quote" id="votingPrompt"></div>
+        <h2 class="stage-head">spot the human</h2>
+        <p class="stage-lead" id="votingLead"></p>
+        <div id="slotList" class="slot-list"></div>
+        <p id="voteDone" class="done-note hidden">your vote is locked in.</p>
         <div class="host-actions hidden" id="closeVoteRow">
           <button id="closeVoteBtn" class="btn btn-accent btn-big">close the vote</button>
         </div>
       </div>
 
-      <!-- ─── the verdict ─── -->
-      <div id="stageResults" class="stage hidden">
-        <h2 class="stage-head" id="resultsHead">judgment</h2>
-        <p class="stage-lead" id="resultsLead"></p>
-        <div id="tallyBox" class="tally"></div>
-        <div class="host-actions hidden" id="resultsActions">
-          <button id="revoteBtn" class="btn btn-accent btn-big hidden">call a revote</button>
-          <button id="openNomsBtn2" class="btn btn-accent btn-big">open nominations - next day</button>
-          <button id="revealBtn2" class="link">flip everyone's cards</button>
-        </div>
-      </div>
-
-      <!-- ─── judgment: every card face-up ─── -->
+      <!-- ─── the reveal ─── -->
       <div id="stageReveal" class="stage hidden">
-        <h2 class="stage-head">every card on the table</h2>
-        <div id="allCards" class="all-cards"></div>
+        <div class="prompt-quote" id="revealPrompt"></div>
+        <h2 class="stage-head" id="revealHead">the reveal</h2>
+        <p class="stage-lead" id="revealLead"></p>
+        <div id="revealList" class="slot-list reveal-list"></div>
+        <div id="scoreboard" class="scoreboard"></div>
         <div class="host-actions hidden" id="nextRow">
-          <button id="nextBtn" class="btn btn-accent btn-big">shuffle up - next round</button>
+          <button id="nextBtn" class="btn btn-accent btn-big">next round</button>
         </div>
       </div>
 
-      <!-- who's at the table -->
+      <!-- who's on the channel -->
       <ul id="members" class="members"></ul>
     </section>
   </main>

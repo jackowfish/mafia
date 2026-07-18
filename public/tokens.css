@@ -1,56 +1,52 @@
 /* Hallmark · component: game-app · genre: atmospheric · theme: custom
- * vibe: "murder mystery in a lamplit old-west saloon"
- * paper: oklch(17% 0.02 60) · accent: oklch(76% 0.13 75) warm · blood: oklch(46% 0.16 25)
- * fonts: Rye (display) + Crimson Pro (body) + Special Elite (labels)
- * axes: dark / display-heavy / warm
+ * vibe: "late-night terminal, a Turing test run as a party game"
+ * paper: oklch(15% 0.02 220) · accent: oklch(80% 0.16 165) phosphor green
+ * signal: oklch(72% 0.15 220) cyan · alert: oklch(70% 0.19 20) red
+ * fonts: VT323 (display) + Space Grotesk (body) + IBM Plex Mono (labels)
+ * axes: dark / mono-forward / cool
  * states: default · hover · focus · active · disabled · loading · error · success
  * pre-emit critique: P4 H4 E4 S5 R4 V5
  */
 
 :root {
-  /* the saloon at night */
-  --color-night: oklch(17% 0.02 60);
-  --color-night-2: oklch(21% 0.025 60);
-  --color-night-3: oklch(26% 0.03 58);
-  --color-wood: oklch(32% 0.05 55);
-  --color-edge: oklch(38% 0.04 60);
+  /* the terminal at night */
+  --color-void: oklch(14% 0.018 240);
+  --color-void-2: oklch(18% 0.022 238);
+  --color-panel: oklch(21% 0.026 236);
+  --color-panel-2: oklch(25% 0.03 234);
+  --color-edge: oklch(34% 0.03 230);
+  --color-edge-2: oklch(44% 0.05 210);
 
-  /* lamplight */
-  --color-lamp: oklch(76% 0.13 75);
-  --color-lamp-dim: oklch(60% 0.09 70);
-  --color-lamp-glow: oklch(55% 0.11 65 / 0.28);
+  /* phosphor + signal */
+  --color-phosphor: oklch(84% 0.17 162);
+  --color-phosphor-dim: oklch(66% 0.12 165);
+  --color-signal: oklch(74% 0.14 220);
+  --color-signal-dim: oklch(58% 0.09 225);
+  --color-glow: oklch(70% 0.15 190 / 0.22);
 
-  /* blood + felt */
-  --color-blood: oklch(46% 0.16 25);
-  --color-blood-bright: oklch(58% 0.19 27);
+  /* human / imposter warmth */
+  --color-human: oklch(78% 0.16 55);
+  --color-human-bright: oklch(84% 0.17 60);
 
-  /* aged poster paper (the cards) */
-  --color-paper: oklch(89% 0.045 85);
-  --color-paper-2: oklch(84% 0.05 82);
-  --color-paper-edge: oklch(70% 0.06 78);
-  --color-ink: oklch(26% 0.03 55);
-  --color-ink-red: oklch(44% 0.17 27);
-
-  /* text on the dark */
-  --color-text: oklch(88% 0.015 75);
-  --color-muted: oklch(64% 0.02 72);
-  --color-focus: oklch(80% 0.13 75);
-  --color-ok: oklch(70% 0.11 145);
-  --color-err: oklch(68% 0.17 27);
+  /* text */
+  --color-text: oklch(92% 0.012 220);
+  --color-muted: oklch(66% 0.02 225);
+  --color-focus: oklch(82% 0.15 200);
+  --color-ok: oklch(82% 0.16 162);
+  --color-err: oklch(70% 0.19 20);
 
   /* type */
-  --font-display: "Rye", "Georgia", serif;
-  --font-body: "Crimson Pro", "Georgia", serif;
-  --font-label: "Special Elite", "Courier New", monospace;
+  --font-display: "VT323", "Courier New", monospace;
+  --font-body: "Space Grotesk", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", "Courier New", monospace;
 
   --text-xs: 0.75rem;
   --text-sm: 0.875rem;
   --text-md: 1.0625rem;
   --text-lg: 1.375rem;
   --text-xl: 1.875rem;
-  --text-display: clamp(2.75rem, 9vw, 4.5rem);
+  --text-display: clamp(3rem, 12vw, 5.5rem);
 
-  /* 4pt spacing */
   --space-2xs: 0.25rem;
   --space-xs: 0.5rem;
   --space-sm: 0.75rem;
@@ -61,16 +57,15 @@
 
   --radius-sm: 4px;
   --radius-md: 8px;
-  --radius-card: 12px;
+  --radius-card: 14px;
 
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
-  --dur-fast: 140ms;
+  --dur-fast: 130ms;
   --dur-med: 260ms;
-  --dur-flip: 480ms;
 
   --rule: 1px solid var(--color-edge);
-  --shadow-card: 0 10px 30px oklch(0% 0 0 / 0.5);
-  --shadow-lift: 0 6px 20px oklch(0% 0 0 / 0.45), 0 0 24px var(--color-lamp-glow);
+  --shadow-card: 0 18px 50px oklch(0% 0 0 / 0.55);
+  --shadow-lift: 0 8px 24px oklch(0% 0 0 / 0.5), 0 0 28px var(--color-glow);
 }
